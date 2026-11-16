@@ -100,3 +100,5 @@
 {"timestamp":"89:18:24.753","source":"Server","level":"LOG","message":"✓ Compiled in 837ms"}
 {"timestamp":"89:18:53.812","source":"Server","level":"LOG","message":"✓ Compiled in 470ms"}
 {"timestamp":"89:19:04.514","source":"Server","level":"LOG","message":"✓ Compiled in 2s"}
+{"timestamp":"89:23:37.445","source":"Browser","level":"WARN","message":"[useTicks] tick subscription failed {\"error\":\"[object Error]\",\"symbol\":\"1HZ100V\"}"}
+{"timestamp":"89:23:37.869","source":"Server","level":"WARN","message":"[browser] \"[useTicks] tick subscription failed\" \"{\\n  code: \\u001b[90mundefined\\u001b[39m,\\n  error: \\u001b[32m'[object Error]'\\u001b[39m,\\n  msgType: \\u001b[90mundefined\\u001b[39m,\\n  symbol: \\u001b[32m'1HZ100V'\\u001b[39m\\n}\" \"(packages/core/src/react/useTicks.ts:128:15)\""}
