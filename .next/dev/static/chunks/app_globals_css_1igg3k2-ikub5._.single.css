@@ -1618,10 +1618,6 @@ body {
   grid-template-columns: auto 1px minmax(0, 1fr) 1px minmax(0, 1fr);
 }
 
-.grid-cols-4 {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
 .flex-row {
   flex-direction: row;
 }
@@ -1702,6 +1698,11 @@ body {
   gap: 16px;
 }
 
+.gap-x-2 {
+  -moz-column-gap: 8px;
+  column-gap: 8px;
+}
+
 .gap-x-3 {
   -moz-column-gap: 12px;
   column-gap: 12px;
@@ -1712,17 +1713,12 @@ body {
   column-gap: 16px;
 }
 
-.gap-y-3 {
-  row-gap: 12px;
-}
-
-.gap-x-2 {
-  -moz-column-gap: 8px;
-  column-gap: 8px;
-}
-
 .gap-y-1 {
   row-gap: 4px;
+}
+
+.gap-y-3 {
+  row-gap: 12px;
 }
 
 .space-x-4 > :not([hidden]) ~ :not([hidden]) {
@@ -1940,6 +1936,10 @@ body {
   border-color: #2edeaccc;
 }
 
+.border-emerald-500\/30 {
+  border-color: #00c3904d;
+}
+
 .border-emerald-500\/40 {
   border-color: #00c39066;
 }
@@ -1995,10 +1995,6 @@ body {
 
 .border-transparent {
   border-color: #0000;
-}
-
-.border-emerald-500\/30 {
-  border-color: #00c3904d;
 }
 
 .border-t-transparent {
@@ -2113,6 +2109,10 @@ body {
   background-color: rgb(var(--muted) / .2);
 }
 
+.bg-muted\/30 {
+  background-color: rgb(var(--muted) / .3);
+}
+
 .bg-muted\/40 {
   background-color: rgb(var(--muted) / .4);
 }
@@ -2147,6 +2147,10 @@ body {
   background-color: rgb(var(--primary) / .05);
 }
 
+.bg-primary\/\[0\.03\] {
+  background-color: rgb(var(--primary) / .03);
+}
+
 .bg-rose-500\/5 {
   background-color: #f43f5e0d;
 }
@@ -2163,14 +2167,6 @@ body {
 
 .bg-transparent {
   background-color: #0000;
-}
-
-.bg-muted\/30 {
-  background-color: rgb(var(--muted) / .3);
-}
-
-.bg-primary\/\[0\.03\] {
-  background-color: rgb(var(--primary) / .03);
 }
 
 .bg-gradient-to-br {
@@ -2612,6 +2608,11 @@ body {
   color: rgb(252 211 77 / var(--tw-text-opacity, 1));
 }
 
+.text-amber-500 {
+  --tw-text-opacity: 1;
+  color: rgb(245 158 11 / var(--tw-text-opacity, 1));
+}
+
 .text-amber-600 {
   --tw-text-opacity: 1;
   color: rgb(217 119 6 / var(--tw-text-opacity, 1));
@@ -2738,11 +2739,6 @@ body {
 .text-sell-foreground {
   --tw-text-opacity: 1;
   color: rgb(var(--sell-foreground) / var(--tw-text-opacity, 1));
-}
-
-.text-amber-500 {
-  --tw-text-opacity: 1;
-  color: rgb(245 158 11 / var(--tw-text-opacity, 1));
 }
 
 .underline-offset-4 {
