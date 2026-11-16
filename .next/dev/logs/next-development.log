@@ -48,3 +48,4 @@
 {"timestamp":"12:59:07.472","source":"Server","level":"LOG","message":"✓ Compiled in 2.6s"}
 {"timestamp":"12:59:14.828","source":"Server","level":"LOG","message":"✓ Compiled in 1102ms"}
 {"timestamp":"13:00:46.512","source":"Server","level":"LOG","message":"✓ Compiled in 2.6s"}
+{"timestamp":"88:54:54.015","source":"Browser","level":"INFO","message":"Download the React DevTools for a better development experience: https://react.dev/link/react-devtools"}
