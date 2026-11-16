@@ -25,19 +25,19 @@ export function MarketScannerNotification({
     ? Math.min(100, (progress.scannedMarkets / progress.totalMarkets) * 100)
     : 0;
   const statusText = isSelected
-    ? localize('MARKET SELECTED')
+    ? localize('STRATEGY MATCHED')
     : hasSignal
-      ? localize('SIGNAL READY')
-    : localize('SCANNING LIVE');
+      ? localize('ENTRY CONDITION FOUND')
+      : localize('WAITING FOR RULE');
   const prediction = progress.prediction;
   const predictionContractLabel = (() => {
     switch (prediction?.contractMode) {
       case 'DIGITDIFF':
         return localize('Differs');
       case 'DIGITOVER':
-        return localize('Over 1');
+        return localize('Over {{barrier}}', { barrier: prediction?.barrier ?? 1 });
       case 'DIGITUNDER':
-        return localize('Under 8');
+        return localize('Under {{barrier}}', { barrier: prediction?.barrier ?? 8 });
       case 'DIGITEVEN':
         return localize('Even');
       case 'DIGITODD':
@@ -57,7 +57,7 @@ export function MarketScannerNotification({
   return (
     <div className="pointer-events-none fixed inset-0 z-[80] flex items-center justify-center p-4">
       <section
-        aria-label={localize('Market scanner progress')}
+        aria-label={localize('Strategy bot progress')}
         className="market-scanner-card pointer-events-auto max-h-[calc(100dvh-2rem)] w-full max-w-sm overflow-y-auto rounded-2xl border border-primary/45 bg-card/95 p-4 text-foreground shadow-2xl backdrop-blur-xl sm:p-5"
       >
         <div className="flex items-start justify-between gap-3">
@@ -71,7 +71,7 @@ export function MarketScannerNotification({
             </div>
             <div className="min-w-0">
               <p className="truncate text-sm font-extrabold tracking-wide">
-                {localize('Pulse Factor Scanner')}
+                {localize('Strategy Bot')}
               </p>
               <p className="mt-0.5 text-[10px] font-bold uppercase tracking-[0.16em] text-primary">
                 {statusText}
@@ -150,7 +150,7 @@ export function MarketScannerNotification({
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">
-                  {localize('Scan {{number}} market signal', {
+                  {localize('Rule match from scan {{number}}', {
                     number: prediction.scanNumber,
                   })}
                 </p>
@@ -164,47 +164,30 @@ export function MarketScannerNotification({
                   {(prediction.predictedWinRate * 100).toFixed(1)}%
                 </p>
                 <p className="text-[9px] font-medium text-muted-foreground">
-                  {localize('Consensus')}
+                  {localize('Rule history')}
                 </p>
               </div>
             </div>
-            <div className="grid grid-cols-4 gap-1 border-t border-border/70 pt-2">
-              {([
-                ['sequence', localize('Sequence')],
-                ['analogy', localize('Analogs')],
-                ['cluster', localize('Clusters')],
-                ['dominance', localize('Dominance')],
-              ] as const).map(([key, label]) => {
-                const signal = prediction.predictionModels[key];
-                return (
-                  <div key={key} className="min-w-0 text-center">
-                    <p className="text-[9px] font-bold uppercase tracking-wide text-muted-foreground">
-                      {label}
-                    </p>
-                    <p className={`font-mono text-[11px] font-semibold ${signal?.active ? 'text-emerald-500' : 'text-foreground'}`}>
-                      {signal ? `${(signal.winRate * 100).toFixed(1)}%` : '—'}
-                    </p>
-                  </div>
-                );
-              })}
-            </div>
-            <div className="mt-2 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-[9px] text-muted-foreground">
+            <p className="border-t border-border/70 pt-2 text-[11px] text-muted-foreground">
+              {localize('Entry: {{condition}}', { condition: prediction.triggerDescription })}
+            </p>
+            <div className="mt-1 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-[9px] text-muted-foreground">
               <span>
-                {localize('{{count}} / 4 active · {{required}} required', {
-                  count: prediction.activeSignalCount,
-                  required: prediction.requiredActiveSignalCount,
+                {localize('{{count}} historical matches · {{required}} required', {
+                  count: prediction.triggerMatches,
+                  required: prediction.requiredTriggerMatches,
                 })}
               </span>
               <span className={prediction.eligibleForTrading ? 'text-emerald-500' : 'text-amber-500'}>
                 {prediction.eligibleForTrading
-                  ? localize('Active · trade candidate')
-                  : localize('Forecast only')}
+                  ? localize('Rule matched')
+                  : localize('Waiting for rule')}
               </span>
             </div>
           </div>
         ) : (
           <div className="mt-3 rounded-xl border border-border bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground">
-            {localize('Evaluating open markets for the strongest active signal.')}
+            {localize('Waiting for your entry condition to match on an open market.')}
           </div>
         )}
 

@@ -19,6 +19,7 @@ import { CurrentTickDisplay } from './current-tick-display';
 import { DigitStatsBar } from './digit-stats-bar';
 import { ContractModeSelector, TradeControls } from './trade-controls';
 import { RiskManagementControls } from './risk-management-controls';
+import { StrategyBuilder } from './strategy-builder';
 import { ConfigurableDigitsControls, ConfigurableBuyButton } from './configurable-digits-controls';
 import { TradeTypeChips } from '@/components/custom/trade-type-chips';
 import { SymbolSelector } from '@/components/custom/symbol-selector';
@@ -39,6 +40,7 @@ import type {
   AutoTradingScanProgress,
   AutoTradingThresholdResult,
 } from '@/hooks/use-digits-trading';
+import type { UserTradingStrategy } from '@/lib/user-trading-strategy';
 import { useSessionTransactions } from '@/hooks/use-session-transactions';
 import { ALL_CONTROL_KEYS } from '../lib/app-config';
 import type { ControlKey, DigitsAppConfig } from '../lib/app-config';
@@ -111,6 +113,7 @@ export interface DigitsViewProps {
   proposal: ProposalInfo | null;
   isProposalLoading: boolean;
   buyContract: () => Promise<void>;
+  startAutoTrading: (strategy: UserTradingStrategy) => Promise<void>;
   isBuying: boolean;
   buyResult: BuyResult | null;
   buyError: string | null;
@@ -186,6 +189,7 @@ export function DigitsView({
   proposal,
   isProposalLoading,
   buyContract,
+  startAutoTrading,
   isBuying,
   buyResult,
   buyError,
@@ -461,6 +465,14 @@ export function DigitsView({
                     </CardHeader>
                     <CardContent className="p-4">
                       {renderConfigurable(CONTROLS_COLUMN_KEYS)}
+                      <StrategyBuilder
+                        status={autoTradingStatus}
+                        isConnected={isConnected}
+                        isAuthenticated={authState === 'authenticated'}
+                        disabled={editMode}
+                        onStart={startAutoTrading}
+                        onStop={stopAutoTrading}
+                      />
                       <RiskManagementControls {...riskManagementProps} />
                     </CardContent>
                   </Card>
@@ -537,6 +549,14 @@ export function DigitsView({
                   </CardHeader>
                   <CardContent className="p-4 sm:p-5">
                     {renderConfigurable(CONTROLS_COLUMN_KEYS)}
+                    <StrategyBuilder
+                      status={autoTradingStatus}
+                      isConnected={isConnected}
+                      isAuthenticated={authState === 'authenticated'}
+                      disabled={editMode}
+                      onStart={startAutoTrading}
+                      onStop={stopAutoTrading}
+                    />
                     <RiskManagementControls {...riskManagementProps} />
                   </CardContent>
                 </Card>
@@ -684,6 +704,14 @@ export function DigitsView({
                         onClearBuyResult={clearBuyResult}
                         isMobile
                       />
+                      <StrategyBuilder
+                        status={autoTradingStatus}
+                        isConnected={isConnected}
+                        isAuthenticated={authState === 'authenticated'}
+                        disabled={editMode}
+                        onStart={startAutoTrading}
+                        onStop={stopAutoTrading}
+                      />
                       <RiskManagementControls {...riskManagementProps} />
                     </div>
                   </div>
@@ -790,6 +818,14 @@ export function DigitsView({
                   </span>
                 </CardHeader>
                 <CardContent className="flex flex-col gap-4 p-4 sm:p-5">
+                  <StrategyBuilder
+                    status={autoTradingStatus}
+                    isConnected={isConnected}
+                    isAuthenticated={authState === 'authenticated'}
+                    disabled={editMode}
+                    onStart={startAutoTrading}
+                    onStop={stopAutoTrading}
+                  />
                   <TradeControls
                     contractMode={contractMode}
                     selectedDigit={selectedDigit}

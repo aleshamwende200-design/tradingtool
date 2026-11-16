@@ -151,7 +151,7 @@ export function ConfigurableBuyButton({
         ? localize('Stop auto-trading')
         : isBuying
           ? localize('Purchasing...')
-          : localize('Scan & trade');
+          : localize('Buy');
 
   const variants: Record<StyleVariant, () => React.ReactNode> = {
     // a — pill (current)

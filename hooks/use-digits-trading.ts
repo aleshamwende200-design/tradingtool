@@ -26,9 +26,10 @@ import {
   hasPriceReversalRisk,
   MARKET_SCAN_DURATION_SECONDS,
   MARKET_SCAN_TICK_COUNT,
-  scoreMarket,
 } from '../lib/market-scanner';
-import type { MarketScanCandidate, MarketScanSignal } from '../lib/market-scanner';
+import type { MarketScanCandidate } from '../lib/market-scanner';
+import { evaluateUserTradingStrategy } from '../lib/user-trading-strategy';
+import type { UserTradingStrategy } from '../lib/user-trading-strategy';
 import { getNextMartingaleStake, initialMartingaleProgress } from '../lib/martingale';
 import type { MartingaleMode } from '../lib/martingale';
 import { useAppTranslations } from '@/components/custom/i18n-provider';
@@ -39,8 +40,8 @@ const CONTRACT_TYPES = ['DIGITDIFF', 'DIGITOVER', 'DIGITUNDER', 'DIGITEVEN', 'DI
 type AutoTradingStatus = 'idle' | 'scanning' | 'running' | 'stopping';
 const CONTRACT_SETTLEMENT_TIMEOUT_MS = 15 * 60 * 1000;
 const CONNECTION_POLL_INTERVAL_MS = 250;
-const INITIAL_ACTIVE_STATE_REQUIREMENT = 2;
-const RESUME_ACTIVE_STATE_REQUIREMENT = 3;
+const INITIAL_STRATEGY_MATCH_REQUIREMENT = 2;
+const RESUME_STRATEGY_MATCH_REQUIREMENT = 3;
 const CONNECTION_LOST = Symbol('connection-lost');
 
 export interface AutoTradingScanProgress {
@@ -65,14 +66,9 @@ export interface AutoTradingPrediction {
   predictedWinRate: number;
   estimatedWinRate: number;
   sampleCount: number;
-  predictionModels: {
-    sequence: MarketScanSignal | null;
-    analogy: MarketScanSignal | null;
-    cluster: MarketScanSignal | null;
-    dominance: MarketScanSignal | null;
-  };
-  activeSignalCount: number;
-  requiredActiveSignalCount: number;
+  triggerMatches: number;
+  requiredTriggerMatches: number;
+  triggerDescription: string;
   eligibleForTrading: boolean;
 }
 
@@ -81,7 +77,7 @@ type MarketScanProgressCallback = (scannedMarkets: number, totalMarkets: number)
 function getCandidatePrediction(
   candidate: MarketScanCandidate,
   scanNumber: number,
-  requiredActiveSignalCount: number
+  requiredTriggerMatches: number
 ): AutoTradingPrediction {
   return {
     scanNumber,
@@ -91,11 +87,11 @@ function getCandidatePrediction(
     predictedWinRate: candidate.predictedWinRate,
     estimatedWinRate: candidate.estimatedWinRate,
     sampleCount: candidate.sampleCount,
-    predictionModels: candidate.predictionModels,
-    activeSignalCount: candidate.activeSignalCount,
-    requiredActiveSignalCount,
+    triggerMatches: candidate.triggerMatches,
+    requiredTriggerMatches,
+    triggerDescription: candidate.triggerDescription,
     eligibleForTrading: candidate.eligibleForTrading &&
-      candidate.activeSignalCount >= requiredActiveSignalCount,
+      candidate.triggerMatches >= requiredTriggerMatches,
   };
 }
 
@@ -164,7 +160,8 @@ async function fetchTickHistory(
 async function scanMarkets(
   ws: NonNullable<UseBaseTradingParams['ws']>,
   symbols: ActiveSymbol[],
-  contractMode: Exclude<ContractMode, 'DIGITMATCH'>,
+  strategy: UserTradingStrategy,
+  requiredTriggerMatches: number,
   shouldStop: () => boolean,
   getLiveTickBuffer: () => { symbol: string | null; prices: number[] },
   onProgress: MarketScanProgressCallback
@@ -202,7 +199,12 @@ async function scanMarkets(
           ? liveTickBuffer.prices
           : historyPrices;
         if (prices && !shouldStop()) {
-          const candidate = scoreMarket(symbol, prices, contractMode);
+          const candidate = evaluateUserTradingStrategy(
+            symbol,
+            prices,
+            strategy,
+            requiredTriggerMatches
+          );
           if (candidate) candidates.push(candidate);
         }
       } catch (error) {
@@ -222,19 +224,16 @@ async function scanMarkets(
 
   if (shouldStop()) return null;
   if (failures.length > 0) {
-    console.warn('[market scanner] Some markets could not be evaluated.', failures);
+    console.warn('[strategy bot] Some markets could not be evaluated.', failures);
   }
   if (candidates.length === 0 && failures.length === openSymbols.length) {
-    throw new Error('The market scanner could not retrieve tick history for any available market.');
+    throw new Error('The strategy bot could not retrieve tick history for any available market.');
   }
 
   candidates.sort((a, b) =>
     Number(b.eligibleForTrading) - Number(a.eligibleForTrading) ||
-    b.probabilityEdge - a.probabilityEdge ||
-    b.activeSignalCount - a.activeSignalCount ||
-    b.sampleCount - a.sampleCount ||
     b.estimatedWinRate - a.estimatedWinRate ||
-    a.contractMode.localeCompare(b.contractMode) ||
+    b.triggerMatches - a.triggerMatches ||
     a.symbol.underlying_symbol.localeCompare(b.symbol.underlying_symbol)
   );
   return candidates;
@@ -381,6 +380,7 @@ interface UseDigitsTradingReturn {
   proposal: ProposalInfo | null;
   isProposalLoading: boolean;
   buyContract: () => Promise<void>;
+  startAutoTrading: (strategy: UserTradingStrategy) => Promise<void>;
   isBuying: boolean;
   buyResult: BuyResult | null;
   buyError: string | null;
@@ -458,7 +458,7 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
   const [autoTradingEstimatedWinRate, setAutoTradingEstimatedWinRate] = useState<number | null>(null);
   const [autoTradingScanProgress, setAutoTradingScanProgress] =
     useState<AutoTradingScanProgress | null>(null);
-  const [scannerPredictionSeed, setScannerPredictionSeed] = useState<{
+  const [strategyPredictionSeed, setStrategyPredictionSeed] = useState<{
     symbol: string;
     pipSize: number;
     prices: number[];
@@ -523,17 +523,17 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
     }
   }, [setContractMode]);
 
-  const useScannerPredictionSeed =
-    activeSymbol?.underlying_symbol === scannerPredictionSeed?.symbol &&
-    prices.length < (scannerPredictionSeed?.prices.length ?? 0);
+  const useStrategyPredictionSeed =
+    activeSymbol?.underlying_symbol === strategyPredictionSeed?.symbol &&
+    prices.length < (strategyPredictionSeed?.prices.length ?? 0);
   const predictionPrices = useMemo(
-    () => useScannerPredictionSeed
-      ? [...(scannerPredictionSeed?.prices ?? []), ...prices].slice(-MARKET_SCAN_TICK_COUNT)
+    () => useStrategyPredictionSeed
+      ? [...(strategyPredictionSeed?.prices ?? []), ...prices].slice(-MARKET_SCAN_TICK_COUNT)
       : prices,
-    [prices, scannerPredictionSeed, useScannerPredictionSeed]
+    [prices, strategyPredictionSeed, useStrategyPredictionSeed]
   );
-  const predictionPipSize = useScannerPredictionSeed && scannerPredictionSeed
-    ? scannerPredictionSeed.pipSize
+  const predictionPipSize = useStrategyPredictionSeed && strategyPredictionSeed
+    ? strategyPredictionSeed.pipSize
     : pipSize;
   const digitStats: DigitStats = useMemo(
     () => computeDigitStats(predictionPrices, predictionPipSize),
@@ -588,14 +588,36 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
       stopAutoTrading();
       return;
     }
-
-    const selectedContractMode = contractMode;
-    if (selectedContractMode === 'DIGITMATCH') {
-      toast.error(localize('Unsupported scanner contract'), {
-        description: localize('Select Differs, Over 1, Under 8, Even, or Odd before starting the scanner.'),
+    if (!tradingWs?.isConnected || !proposal?.id) {
+      toast.error(localize('Contract quote is not ready'), {
+        description: localize('Wait for a live quote before purchasing.'),
       });
       return;
     }
+
+    try {
+      await buyWithProposal({
+        id: proposal.id,
+        askPrice: proposal.askPrice,
+        payout: proposal.payout,
+        longcode: proposal.longcode,
+        minStake: proposal.minStake,
+        maxPayout: proposal.maxPayout,
+      });
+    } catch (error) {
+      toast.error(localize('Contract purchase failed'), {
+        description: error instanceof Error ? error.message : localize('The purchase could not be completed.'),
+      });
+    }
+  }, [buyWithProposal, localize, proposal, stopAutoTrading, tradingWs]);
+
+  const startAutoTrading = useCallback(async (strategy: UserTradingStrategy) => {
+    if (autoSessionRef.current) {
+      stopAutoTrading();
+      return;
+    }
+
+    const selectedContractMode = strategy.contractMode;
 
     const parseTarget = (value: string, label: string): number | null => {
       if (value.trim() === '') return null;
@@ -614,7 +636,7 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
       takeProfitTarget = parseTarget(takeProfit, localize('Take profit'));
       stopLossTarget = parseTarget(stopLoss, localize('Stop loss'));
       if (takeProfitTarget === null && stopLossTarget === null) {
-        throw new Error(localize('Set a take-profit or stop-loss target before starting the market scanner.'));
+        throw new Error(localize('Set a take-profit or stop-loss target before starting the strategy bot.'));
       }
       if (!Number.isFinite(baseStake) || baseStake <= 0) {
         throw new Error(localize('Stake must be greater than zero.'));
@@ -637,7 +659,7 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
     autoSessionRef.current = session;
     setThresholdResult(null);
     setAutoTradingStatus('scanning');
-    if (selectedContractMode === 'DIGITDIFF') setSelectedDigit(null);
+    setSelectedDigit(strategy.barrier);
     setAutoTradingTradeCount(0);
     setAutoTradingProfit(0);
     setAutoTradingMarket(null);
@@ -655,15 +677,14 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
     const rejectedCandidates = new Set<string>();
     const skippedNoReturnCandidates = new Set<string>();
     const skippedNegativeEvCandidates = new Set<string>();
-    let currentBarrier = selectedDigit ?? 5;
     let scanNumber = 0;
     let latestPrediction: AutoTradingPrediction | null = null;
     let candidatesFromCurrentScan: MarketScanCandidate[] = [];
     let nextCandidateIndex = 0;
-    let requiredActiveSignalCount = INITIAL_ACTIVE_STATE_REQUIREMENT;
+    let requiredTriggerMatches = INITIAL_STRATEGY_MATCH_REQUIREMENT;
 
     const scanForMarket = async (
-      activeStateRequirement: number
+      requiredMatches: number
     ): Promise<MarketScanCandidate[] | null> => {
       setAutoTradingStatus('scanning');
       setAutoTradingMarket(null);
@@ -722,7 +743,8 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
           candidates = await scanMarkets(
             tradingWs,
             symbols,
-            selectedContractMode,
+            strategy,
+            requiredMatches,
             () => session.stopRequested,
             () => liveTickBufferRef.current,
             (scannedMarkets, marketCount) => {
@@ -749,13 +771,13 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
           const leadingCandidate = availableCandidates.find(
             (candidate) =>
               candidate.eligibleForTrading &&
-              candidate.activeSignalCount >= activeStateRequirement
+              candidate.triggerMatches >= requiredMatches
           ) ?? availableCandidates[0];
           if (!leadingCandidate) continue;
           const prediction = getCandidatePrediction(
             leadingCandidate,
             scanNumber,
-            activeStateRequirement
+            requiredMatches
           );
           latestPrediction = prediction;
           setAutoTradingScanProgress((progress) =>
@@ -788,13 +810,13 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
           if (
             !rejectedCandidates.has(candidateKey) &&
             candidate.eligibleForTrading &&
-            candidate.activeSignalCount >= requiredActiveSignalCount
+            candidate.triggerMatches >= requiredTriggerMatches
           ) {
             return candidate;
           }
         }
 
-        const nextScanCandidates = await scanForMarket(requiredActiveSignalCount);
+        const nextScanCandidates = await scanForMarket(requiredTriggerMatches);
         if (!nextScanCandidates) return null;
         candidatesFromCurrentScan = nextScanCandidates;
         nextCandidateIndex = 0;
@@ -806,7 +828,7 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
       const prediction = getCandidatePrediction(
         candidate,
         scanNumber,
-        requiredActiveSignalCount
+        requiredTriggerMatches
       );
       latestPrediction = prediction;
       currentCandidateRef.current = candidate;
@@ -822,10 +844,11 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
       const marketName =
         candidate.symbol.underlying_symbol_name || candidate.symbol.underlying_symbol;
       if (candidate.barrier !== null) {
-        currentBarrier = candidate.barrier;
         setSelectedDigit(candidate.barrier);
+      } else {
+        setSelectedDigit(null);
       }
-      setScannerPredictionSeed({
+      setStrategyPredictionSeed({
         symbol: candidate.symbol.underlying_symbol,
         pipSize: pipSizeFromPip(candidate.symbol.pip_size),
         prices: candidate.predictionPrices,
@@ -882,16 +905,16 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
     try {
       const firstMarket = await selectNextCandidate();
       if (!firstMarket) {
-        stopReason = localize('Market scan stopped before a qualifying market was found.');
+        stopReason = localize('Strategy bot stopped before a matching market was found.');
       } else {
         useScannedMarket(firstMarket);
       }
 
       while (!session.stopRequested) {
         const market = currentMarketRef.current;
-        const candidate = currentCandidateRef.current;
+        let candidate = currentCandidateRef.current;
         if (!market || !candidate) {
-          throw new Error(localize('The market scanner did not select a market.'));
+          throw new Error(localize('The strategy bot did not select a matching market.'));
         }
         const connected = await waitForConnection(
           tradingWs,
@@ -900,7 +923,33 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
         );
         if (!connected) break;
 
-        const barrier = getContractBarrier(candidate.contractMode, currentBarrier);
+        const latestPrices = await fetchTickHistory(
+          tradingWs,
+          market.underlying_symbol,
+          MARKET_SCAN_TICK_COUNT,
+          () => session.stopRequested
+        );
+        if (session.stopRequested) break;
+        const refreshedCandidate = latestPrices
+          ? evaluateUserTradingStrategy(
+              market,
+              latestPrices,
+              strategy,
+              requiredTriggerMatches
+            )
+          : null;
+        if (!refreshedCandidate) {
+          candidatesFromCurrentScan = [];
+          nextCandidateIndex = 0;
+          const nextCandidate = await selectNextCandidate();
+          if (!nextCandidate) break;
+          useScannedMarket(nextCandidate);
+          continue;
+        }
+        useScannedMarket(refreshedCandidate);
+        candidate = refreshedCandidate;
+
+        const barrier = candidate.barrier ?? undefined;
         const proposalParams = {
           proposal: 1,
           amount: nextStake,
@@ -1003,7 +1052,7 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
         }
         clearBuyResult();
         setAutoTradingScanProgress(null);
-        requiredActiveSignalCount = INITIAL_ACTIVE_STATE_REQUIREMENT;
+        requiredTriggerMatches = INITIAL_STRATEGY_MATCH_REQUIREMENT;
 
         tradeCount += 1;
         setAutoTradingTradeCount(tradeCount);
@@ -1054,7 +1103,7 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
           if (session.stopRequested) break;
 
           if (recentPrices && hasPriceReversalRisk(recentPrices)) {
-            requiredActiveSignalCount = RESUME_ACTIVE_STATE_REQUIREMENT;
+            requiredTriggerMatches = RESUME_STRATEGY_MATCH_REQUIREMENT;
             candidatesFromCurrentScan = [];
             nextCandidateIndex = 0;
             const nextMarket = await selectNextCandidate();
@@ -1095,7 +1144,6 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
     martingaleMode,
     martingaleValues,
     setContractMode,
-    selectedDigit,
     symbols,
     stake,
     stopAutoTrading,
@@ -1131,6 +1179,7 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
     proposal,
     isProposalLoading: isConnected && proposalParams !== null && proposal === null,
     buyContract,
+    startAutoTrading,
     isBuying,
     buyResult,
     buyError,

@@ -1838,6 +1838,10 @@ body {
   user-select: none;
 }
 
+.resize-y {
+  resize: vertical;
+}
+
 .resize {
   resize: both;
 }
@@ -2245,6 +2249,10 @@ body {
   border-color: #0000;
 }
 
+.border-emerald-500\/30 {
+  border-color: #00c3904d;
+}
+
 .border-t-transparent {
   border-top-color: #0000;
 }
@@ -2411,6 +2419,10 @@ body {
 
 .bg-muted\/30 {
   background-color: rgb(var(--muted) / .3);
+}
+
+.bg-primary\/\[0\.03\] {
+  background-color: rgb(var(--primary) / .03);
 }
 
 .bg-gradient-to-br {
@@ -3445,6 +3457,10 @@ body {
 
 .disabled\:opacity-50:disabled {
   opacity: .5;
+}
+
+.disabled\:opacity-60:disabled {
+  opacity: .6;
 }
 
 .group:hover .group-hover\:text-primary {

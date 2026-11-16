@@ -1,0 +1,277 @@
+import type { ActiveSymbol } from '@deriv/core';
+import { getLastDigit, pipSizeFromPip } from '@/lib/digit-stats';
+import { MARKET_SCAN_TICK_COUNT } from '@/lib/market-scanner';
+import type { MarketScanCandidate } from '@/lib/market-scanner';
+import type { ContractMode } from '@/lib/types';
+
+type DigitTrigger =
+  | { kind: 'digit'; digit: number; description: string }
+  | { kind: 'sequence'; digits: number[]; description: string }
+  | { kind: 'parity-run'; parity: 'even' | 'odd'; length: number; description: string }
+  | { kind: 'range-run'; range: 'high' | 'low'; length: number; description: string };
+
+export interface UserTradingStrategy {
+  contractMode: Exclude<ContractMode, 'DIGITMATCH'>;
+  barrier: number | null;
+  trigger: DigitTrigger;
+  description: string;
+  contractDescription: string;
+}
+
+export type StrategyCompilation =
+  | { strategy: UserTradingStrategy; error: null }
+  | { strategy: null; error: string };
+
+function compileTrigger(condition: string): DigitTrigger | null {
+  const sequenceMatch = condition.match(
+    /\b(?:last\s+)?(?:digit\s+)?(?:sequence\s+)?(\d(?:\s*(?:,|then)\s*\d){1,4})\b/
+  );
+  if (sequenceMatch?.[1]) {
+    const digits = sequenceMatch[1].match(/\d/g)?.map(Number) ?? [];
+    if (digits.length >= 2 && digits.length <= 5) {
+      return {
+        kind: 'sequence',
+        digits,
+        description: `after the sequence ${digits.join(', ')}`,
+      };
+    }
+  }
+
+  const digitMatch = condition.match(/\b(?:last\s+)?digit\s+(?:is|equals?)\s+([0-9])\b/);
+  if (digitMatch?.[1]) {
+    const digit = Number(digitMatch[1]);
+    return { kind: 'digit', digit, description: `when the last digit is ${digit}` };
+  }
+
+  const singleParityMatch = condition.match(
+    /\b(?:last\s+)?digit\s+(?:is|equals?)\s+(even|odd)\b/
+  );
+  if (singleParityMatch?.[1]) {
+    const parity = singleParityMatch[1] as 'even' | 'odd';
+    return {
+      kind: 'parity-run',
+      parity,
+      length: 1,
+      description: `when the last digit is ${parity}`,
+    };
+  }
+
+  const singleRangeMatch = condition.match(
+    /\b(?:last\s+)?digit\s+(?:is|equals?)\s+(high|low)\b/
+  );
+  if (singleRangeMatch?.[1]) {
+    const range = singleRangeMatch[1] as 'high' | 'low';
+    return {
+      kind: 'range-run',
+      range,
+      length: 1,
+      description: `when the last digit is ${range}`,
+    };
+  }
+
+  const parityRunMatch = condition.match(
+    /\b(?:last\s+)?(\d+)\s+consecutive\s+(even|odd)\s+digits?\b/
+  ) ?? condition.match(/\blast\s+(\d+)\s+digits?\s+(?:are|all)\s+(even|odd)\b/);
+  if (parityRunMatch?.[1] && parityRunMatch[2]) {
+    const length = Number(parityRunMatch[1]);
+    if (length >= 1 && length <= 8) {
+      const parity = parityRunMatch[2] as 'even' | 'odd';
+      return {
+        kind: 'parity-run',
+        parity,
+        length,
+        description: `after ${length} consecutive ${parity} digits`,
+      };
+    }
+  }
+
+  const rangeRunMatch = condition.match(
+    /\b(?:last\s+)?(\d+)\s+consecutive\s+(high|low)\s+digits?\b/
+  );
+  if (rangeRunMatch?.[1] && rangeRunMatch[2]) {
+    const length = Number(rangeRunMatch[1]);
+    if (length >= 1 && length <= 8) {
+      const range = rangeRunMatch[2] as 'high' | 'low';
+      return {
+        kind: 'range-run',
+        range,
+        length,
+        description: `after ${length} consecutive ${range} digits`,
+      };
+    }
+  }
+
+  return null;
+}
+
+export function compileUserTradingStrategy(description: string): StrategyCompilation {
+  const normalized = description.trim().replace(/\s+/g, ' ');
+  if (!normalized) {
+    return { strategy: null, error: 'Describe a contract and an entry condition first.' };
+  }
+
+  const conditionStart = normalized.search(/\b(?:when|after)\b/i);
+  if (conditionStart < 0) {
+    return {
+      strategy: null,
+      error: 'Include an entry condition using “when” or “after”.',
+    };
+  }
+
+  const contractText = normalized.slice(0, conditionStart).toLowerCase();
+  const conditionText = normalized.slice(conditionStart).toLowerCase();
+  let contractMode: UserTradingStrategy['contractMode'];
+  let barrier: number | null = null;
+  let contractDescription: string;
+
+  const differsMatch = contractText.match(/\b(?:differs?|different)\s+(?:from\s+)?([0-9])\b/);
+  const overMatch = contractText.match(/\b(?:over|above|greater\s+than)\s+([0-8])\b/);
+  const underMatch = contractText.match(/\b(?:under|below|less\s+than)\s+([1-9])\b/);
+  const evenOddMatch = contractText.match(/\b(even|odd)\b/);
+
+  if (differsMatch?.[1]) {
+    contractMode = 'DIGITDIFF';
+    barrier = Number(differsMatch[1]);
+    contractDescription = `Differs from ${barrier}`;
+  } else if (overMatch?.[1]) {
+    contractMode = 'DIGITOVER';
+    barrier = Number(overMatch[1]);
+    contractDescription = `Over ${barrier}`;
+  } else if (underMatch?.[1]) {
+    contractMode = 'DIGITUNDER';
+    barrier = Number(underMatch[1]);
+    contractDescription = `Under ${barrier}`;
+  } else if (evenOddMatch?.[1]) {
+    contractMode = evenOddMatch[1] === 'even' ? 'DIGITEVEN' : 'DIGITODD';
+    contractDescription = evenOddMatch[1] === 'even' ? 'Even' : 'Odd';
+  } else {
+    return {
+      strategy: null,
+      error: 'Specify a contract such as “differs from 5”, “over 1”, “under 8”, “even”, or “odd”.',
+    };
+  }
+
+  const trigger = compileTrigger(conditionText);
+  if (!trigger) {
+    return {
+      strategy: null,
+      error: 'Entry condition not recognized. Use a last digit, digit sequence, consecutive even/odd digits, or consecutive high/low digits.',
+    };
+  }
+
+  return {
+    strategy: {
+      contractMode,
+      barrier,
+      trigger,
+      description: normalized,
+      contractDescription,
+    },
+    error: null,
+  };
+}
+
+function getTriggerLength(trigger: DigitTrigger): number {
+  switch (trigger.kind) {
+    case 'digit':
+      return 1;
+    case 'sequence':
+      return trigger.digits.length;
+    case 'parity-run':
+    case 'range-run':
+      return trigger.length;
+  }
+}
+
+function triggerMatches(digits: number[], trigger: DigitTrigger): boolean {
+  switch (trigger.kind) {
+    case 'digit':
+      return digits.length === 1 && digits[0] === trigger.digit;
+    case 'sequence':
+      return digits.length === trigger.digits.length &&
+        trigger.digits.every((digit, index) => digits[index] === digit);
+    case 'parity-run':
+      return digits.length === trigger.length && digits.every(
+        (digit) => digit % 2 === (trigger.parity === 'even' ? 0 : 1)
+      );
+    case 'range-run':
+      return digits.length === trigger.length && digits.every(
+        (digit) => trigger.range === 'high' ? digit >= 5 : digit <= 4
+      );
+  }
+}
+
+function isWinningDigit(
+  digit: number,
+  contractMode: UserTradingStrategy['contractMode'],
+  barrier: number | null
+): boolean {
+  switch (contractMode) {
+    case 'DIGITDIFF':
+      return digit !== barrier;
+    case 'DIGITOVER':
+      return digit > (barrier ?? 1);
+    case 'DIGITUNDER':
+      return digit < (barrier ?? 8);
+    case 'DIGITEVEN':
+      return digit % 2 === 0;
+    case 'DIGITODD':
+      return digit % 2 !== 0;
+  }
+}
+
+function getWilsonLowerBound(wins: number, sampleCount: number): number {
+  const z = 1.6448536269514722;
+  const observedRate = wins / sampleCount;
+  const denominator = 1 + z ** 2 / sampleCount;
+  const center = observedRate + z ** 2 / (2 * sampleCount);
+  const margin = z * Math.sqrt(
+    (observedRate * (1 - observedRate) + z ** 2 / (4 * sampleCount)) / sampleCount
+  );
+  return (center - margin) / denominator;
+}
+
+export function evaluateUserTradingStrategy(
+  symbol: ActiveSymbol,
+  prices: number[],
+  strategy: UserTradingStrategy,
+  requiredTriggerMatches: number
+): MarketScanCandidate | null {
+  const predictionPrices = prices
+    .filter(Number.isFinite)
+    .slice(-MARKET_SCAN_TICK_COUNT);
+  if (predictionPrices.length < MARKET_SCAN_TICK_COUNT) return null;
+
+  const pipSize = pipSizeFromPip(symbol.pip_size);
+  const digits = predictionPrices.map((price) => getLastDigit(price, pipSize));
+  const triggerLength = getTriggerLength(strategy.trigger);
+  if (!triggerMatches(digits.slice(-triggerLength), strategy.trigger)) return null;
+
+  let triggerMatchesInHistory = 0;
+  let wins = 0;
+  for (let outcomeIndex = triggerLength; outcomeIndex < digits.length; outcomeIndex += 1) {
+    const context = digits.slice(outcomeIndex - triggerLength, outcomeIndex);
+    if (!triggerMatches(context, strategy.trigger)) continue;
+    triggerMatchesInHistory += 1;
+    if (isWinningDigit(digits[outcomeIndex]!, strategy.contractMode, strategy.barrier)) {
+      wins += 1;
+    }
+  }
+
+  if (triggerMatchesInHistory < requiredTriggerMatches) return null;
+  const predictedWinRate = (wins + 1) / (triggerMatchesInHistory + 2);
+
+  return {
+    symbol,
+    contractMode: strategy.contractMode,
+    barrier: strategy.barrier,
+    predictionPrices,
+    predictedWinRate,
+    estimatedWinRate: getWilsonLowerBound(wins, triggerMatchesInHistory),
+    eligibleForTrading: true,
+    sampleCount: predictionPrices.length,
+    triggerMatches: triggerMatchesInHistory,
+    requiredTriggerMatches,
+    triggerDescription: strategy.trigger.description,
+  };
+}

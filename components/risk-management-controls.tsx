@@ -174,7 +174,7 @@ export function RiskManagementControls({
                   ? 'Stopping'
                   : autoTradingStatus === 'scanning'
                     ? 'Scanning markets'
-                    : 'Auto-trading',
+                    : 'Strategy bot',
                 count: autoTradingTradeCount,
                 profit: autoTradingProfit.toFixed(2),
               }}
@@ -183,7 +183,7 @@ export function RiskManagementControls({
           {autoTradingStatus === 'running' && autoTradingMarket && autoTradingEstimatedWinRate !== null && (
             <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
               <Localize
-                i18n_default_text="{{market}} · Conservative recent-tick estimate: {{rate}}% (not guaranteed)"
+                i18n_default_text="{{market}} · Conditional historical estimate: {{rate}}% (not guaranteed)"
                 values={{
                   market: autoTradingMarket,
                   rate: (autoTradingEstimatedWinRate * 100).toFixed(1),
@@ -211,7 +211,7 @@ export function RiskManagementControls({
       )}
 
       <p className="text-[11px] leading-relaxed text-muted-foreground">
-        <Localize i18n_default_text="Set at least one profit or loss target. Scan & trade checks open markets using only the selected contract type, then skips quotes with non-positive estimated value. Short-term tick patterns are noisy and this cannot guarantee profits; martingale can increase losses." />
+        <Localize i18n_default_text="Set at least one profit or loss target. The bot follows the reviewed strategy, checks its recent conditional history, and skips quotes with non-positive estimated value. Short-term tick patterns are noisy and cannot guarantee profits; martingale can increase losses." />
       </p>
     </div>
   );

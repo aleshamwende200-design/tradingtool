@@ -176,7 +176,7 @@ export function TradeControls({
   const isAutoTrading = autoTradingStatus !== 'idle';
   const predictionBarrier = getContractBarrier(contractMode, selectedDigit);
   const showPredictionDigit = showDigitInPrediction(contractMode) && predictionBarrier !== undefined;
-  const awaitingDiffersScan = contractMode === 'DIGITDIFF' && predictionBarrier === undefined;
+  const awaitingDiffersDigit = contractMode === 'DIGITDIFF' && predictionBarrier === undefined;
   const buyButtonLabel = autoTradingStatus === 'stopping'
     ? localize('Stopping...')
     : autoTradingStatus === 'scanning'
@@ -185,7 +185,7 @@ export function TradeControls({
         ? localize('Stop auto-trading')
         : isBuying
           ? localize('Purchasing...')
-          : localize('Scan & trade');
+          : localize('Buy');
 
   return (
     <div className="space-y-2 sm:space-y-4">
@@ -262,11 +262,11 @@ export function TradeControls({
               </span>
             </>
           )}
-          {awaitingDiffersScan && (
+          {awaitingDiffersDigit && (
             <>
               {' '}
               <span className="text-muted-foreground">
-                <Localize i18n_default_text="Awaiting scan" />
+                <Localize i18n_default_text="Select a digit for Differs" />
               </span>
             </>
           )}

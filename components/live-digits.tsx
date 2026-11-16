@@ -81,6 +81,7 @@ export function LiveDigits({
       proposal={trading.proposal}
       isProposalLoading={trading.isProposalLoading}
       buyContract={trading.buyContract}
+      startAutoTrading={trading.startAutoTrading}
       isBuying={trading.isBuying}
       buyResult={trading.buyResult}
       buyError={trading.buyError}
