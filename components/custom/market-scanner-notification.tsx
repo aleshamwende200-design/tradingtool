@@ -24,6 +24,8 @@ export function MarketScannerNotification({
   const progressPercent = progress.totalMarkets > 0
     ? Math.min(100, (progress.scannedMarkets / progress.totalMarkets) * 100)
     : 0;
+  const scanComplete = progress.totalMarkets > 0 &&
+    progress.scannedMarkets >= progress.totalMarkets;
   const statusText = isSelected
     ? localize('STRATEGY MATCHED')
     : hasSignal
@@ -48,11 +50,9 @@ export function MarketScannerNotification({
   })();
   const description = isSelected
     ? localize('Starting trade')
-    : progress.countdownSeconds === 0 && progress.scannedMarkets < progress.totalMarkets
-      ? localize('Finalizing scan')
-      : progress.countdownSeconds === 0
-        ? localize('Selecting market')
-        : localize('Scanning markets');
+    : scanComplete
+      ? localize('Selecting market')
+      : localize('Scanning markets');
 
   return (
     <div className="pointer-events-none fixed inset-0 z-[80] flex items-center justify-center p-4">
@@ -85,9 +85,9 @@ export function MarketScannerNotification({
 
         <div className="mt-4 flex items-center gap-3">
           <div
-            role="timer"
-            aria-label={localize('{{seconds}} seconds remaining', {
-              seconds: progress.countdownSeconds,
+            role="status"
+            aria-label={localize('{{percent}} percent scanned', {
+              percent: Math.round(progressPercent),
             })}
             className="flex h-[4.25rem] w-[4.25rem] shrink-0 flex-col items-center justify-center rounded-full border-2 border-primary/45 bg-primary/5 shadow-[0_0_20px_rgb(var(--primary)/0.16)]"
           >
@@ -95,12 +95,12 @@ export function MarketScannerNotification({
               <CheckCircle2 className="h-7 w-7 text-primary" />
             ) : (
               <span className="font-mono text-3xl font-black tabular-nums text-primary">
-                {String(progress.countdownSeconds).padStart(2, '0')}
+                {String(Math.round(progressPercent)).padStart(2, '0')}
               </span>
             )}
             {!isSelected && (
               <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">
-                {localize('Seconds')}
+                {localize('Percent')}
               </span>
             )}
           </div>
@@ -122,13 +122,6 @@ export function MarketScannerNotification({
               <p className="mt-1 text-[11px] font-medium text-amber-600 dark:text-amber-400">
                 {localize('{{count}} no-return setups skipped', {
                   count: progress.skippedNoReturnMarkets,
-                })}
-              </p>
-            )}
-            {progress.skippedNegativeEvSetups > 0 && (
-              <p className="mt-1 text-[11px] font-medium text-amber-600 dark:text-amber-400">
-                {localize('{{count}} negative expected-value setups skipped', {
-                  count: progress.skippedNegativeEvSetups,
                 })}
               </p>
             )}
@@ -176,9 +169,8 @@ export function MarketScannerNotification({
             </p>
             <div className="mt-1 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-[9px] text-muted-foreground">
               <span>
-                {localize('{{count}} historical matches · {{required}} required', {
+                {localize('{{count}} historical matches', {
                   count: prediction.triggerMatches,
-                  required: prediction.requiredTriggerMatches,
                 })}
               </span>
               <span className={prediction.eligibleForTrading ? 'text-emerald-500' : 'text-amber-500'}>

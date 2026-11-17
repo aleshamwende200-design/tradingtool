@@ -245,8 +245,7 @@ function getWilsonLowerBound(wins: number, sampleCount: number): number {
 export function evaluateUserTradingStrategy(
   symbol: ActiveSymbol,
   prices: number[],
-  strategy: UserTradingStrategy,
-  requiredTriggerMatches: number
+  strategy: UserTradingStrategy
 ): MarketScanCandidate | null {
   const predictionPrices = prices
     .filter(Number.isFinite)
@@ -274,7 +273,6 @@ export function evaluateUserTradingStrategy(
     }
   }
 
-  if (triggerMatchesInHistory < requiredTriggerMatches) return null;
   const predictedWinRate = (wins + 1) / (triggerMatchesInHistory + 2);
 
   return {
@@ -283,11 +281,12 @@ export function evaluateUserTradingStrategy(
     barrier: strategy.barrier,
     predictionPrices,
     predictedWinRate,
-    estimatedWinRate: getWilsonLowerBound(wins, triggerMatchesInHistory),
+    estimatedWinRate: triggerMatchesInHistory > 0
+      ? getWilsonLowerBound(wins, triggerMatchesInHistory)
+      : predictedWinRate,
     eligibleForTrading: true,
     sampleCount: predictionPrices.length,
     triggerMatches: triggerMatchesInHistory,
-    requiredTriggerMatches,
     triggerDescription: strategy.triggers.map((trigger) => trigger.description).join(' and '),
   };
 }

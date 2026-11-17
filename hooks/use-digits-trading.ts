@@ -23,8 +23,6 @@ import { computeDigitStats, getLastDigit, pipSizeFromPip } from '../lib/digit-st
 import {
   getContractBarrier,
   getScannableMarkets,
-  hasPriceReversalRisk,
-  MARKET_SCAN_DURATION_SECONDS,
   MARKET_SCAN_TICK_COUNT,
 } from '../lib/market-scanner';
 import type { MarketScanCandidate } from '../lib/market-scanner';
@@ -40,13 +38,10 @@ const CONTRACT_TYPES = ['DIGITDIFF', 'DIGITOVER', 'DIGITUNDER', 'DIGITEVEN', 'DI
 type AutoTradingStatus = 'idle' | 'scanning' | 'running' | 'stopping';
 const CONTRACT_SETTLEMENT_TIMEOUT_MS = 15 * 60 * 1000;
 const CONNECTION_POLL_INTERVAL_MS = 250;
-const INITIAL_STRATEGY_MATCH_REQUIREMENT = 2;
-const RESUME_STRATEGY_MATCH_REQUIREMENT = 3;
 const CONNECTION_LOST = Symbol('connection-lost');
 
 export interface AutoTradingScanProgress {
   phase: 'connecting' | 'scanning' | 'selected';
-  countdownSeconds: number;
   scannedMarkets: number;
   totalMarkets: number;
   scanNumber: number;
@@ -56,7 +51,6 @@ export interface AutoTradingScanProgress {
   estimatedWinRate: number | null;
   prediction: AutoTradingPrediction | null;
   skippedNoReturnMarkets: number;
-  skippedNegativeEvSetups: number;
 }
 
 export interface AutoTradingPrediction {
@@ -68,7 +62,6 @@ export interface AutoTradingPrediction {
   estimatedWinRate: number;
   sampleCount: number;
   triggerMatches: number;
-  requiredTriggerMatches: number;
   triggerDescription: string;
   eligibleForTrading: boolean;
 }
@@ -77,8 +70,7 @@ type MarketScanProgressCallback = (scannedMarkets: number, totalMarkets: number)
 
 function getCandidatePrediction(
   candidate: MarketScanCandidate,
-  scanNumber: number,
-  requiredTriggerMatches: number
+  scanNumber: number
 ): AutoTradingPrediction {
   return {
     scanNumber,
@@ -89,10 +81,8 @@ function getCandidatePrediction(
     estimatedWinRate: candidate.estimatedWinRate,
     sampleCount: candidate.sampleCount,
     triggerMatches: candidate.triggerMatches,
-    requiredTriggerMatches,
     triggerDescription: candidate.triggerDescription,
-    eligibleForTrading: candidate.eligibleForTrading &&
-      candidate.triggerMatches >= requiredTriggerMatches,
+    eligibleForTrading: candidate.eligibleForTrading,
   };
 }
 
@@ -162,7 +152,6 @@ async function scanMarkets(
   ws: NonNullable<UseBaseTradingParams['ws']>,
   symbols: ActiveSymbol[],
   strategy: UserTradingStrategy,
-  requiredTriggerMatches: number,
   shouldStop: () => boolean,
   getLiveTickBuffer: () => { symbol: string | null; prices: number[] },
   onProgress: MarketScanProgressCallback
@@ -203,8 +192,7 @@ async function scanMarkets(
           const candidate = evaluateUserTradingStrategy(
             symbol,
             prices,
-            strategy,
-            requiredTriggerMatches
+            strategy
           );
           if (candidate) candidates.push(candidate);
         }
@@ -238,29 +226,6 @@ async function scanMarkets(
     a.symbol.underlying_symbol.localeCompare(b.symbol.underlying_symbol)
   );
   return candidates;
-}
-
-async function runMarketScanCountdown(
-  onCountdown: (seconds: number) => void,
-  shouldStop: () => boolean
-): Promise<boolean> {
-  const deadline = Date.now() + MARKET_SCAN_DURATION_SECONDS * 1000;
-  let remaining = MARKET_SCAN_DURATION_SECONDS;
-  onCountdown(remaining);
-
-  while (!shouldStop()) {
-    const nextRemaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
-    if (nextRemaining !== remaining) {
-      remaining = nextRemaining;
-      onCountdown(remaining);
-    }
-    if (remaining === 0) return true;
-    await new Promise((resolve) => setTimeout(
-      resolve,
-      Math.min(CONNECTION_POLL_INTERVAL_MS, Math.max(1, deadline - Date.now()))
-    ));
-  }
-  return false;
 }
 
 export interface AutoTradingThresholdResult {
@@ -695,16 +660,12 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
     const currentCandidateRef: { current: MarketScanCandidate | null } = { current: null };
     const rejectedCandidates = new Set<string>();
     const skippedNoReturnCandidates = new Set<string>();
-    const skippedNegativeEvCandidates = new Set<string>();
     let scanNumber = 0;
     let latestPrediction: AutoTradingPrediction | null = null;
     let candidatesFromCurrentScan: MarketScanCandidate[] = [];
     let nextCandidateIndex = 0;
-    let requiredTriggerMatches = INITIAL_STRATEGY_MATCH_REQUIREMENT;
 
-    const scanForMarket = async (
-      requiredMatches: number
-    ): Promise<MarketScanCandidate[] | null> => {
+    const scanForMarket = async (): Promise<MarketScanCandidate[] | null> => {
       setAutoTradingStatus('scanning');
       setAutoTradingMarket(null);
       setAutoTradingEstimatedWinRate(null);
@@ -734,7 +695,6 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
         const totalMarkets = eligibleMarkets.length;
         setAutoTradingScanProgress({
           phase: 'scanning',
-          countdownSeconds: MARKET_SCAN_DURATION_SECONDS,
           scannedMarkets: 0,
           totalMarkets,
           scanNumber,
@@ -744,44 +704,23 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
           estimatedWinRate: null,
           prediction: latestPrediction,
           skippedNoReturnMarkets: skippedNoReturnCandidates.size,
-          skippedNegativeEvSetups: skippedNegativeEvCandidates.size,
         });
 
-        let scanFailed = false;
-        const countdown = runMarketScanCountdown(
-          (countdownSeconds) => {
+        const candidates = await scanMarkets(
+          tradingWs,
+          eligibleMarkets,
+          strategy,
+          () => session.stopRequested,
+          () => liveTickBufferRef.current,
+          (scannedMarkets, marketCount) => {
             setAutoTradingScanProgress((progress) =>
               progress?.phase === 'scanning'
-                ? { ...progress, countdownSeconds }
+                ? { ...progress, scannedMarkets, totalMarkets: marketCount }
                 : progress
             );
-          },
-          () => session.stopRequested || scanFailed
+          }
         );
-        let candidates: MarketScanCandidate[] | null;
-        try {
-          candidates = await scanMarkets(
-            tradingWs,
-            eligibleMarkets,
-            strategy,
-            requiredMatches,
-            () => session.stopRequested,
-            () => liveTickBufferRef.current,
-            (scannedMarkets, marketCount) => {
-              setAutoTradingScanProgress((progress) =>
-                progress?.phase === 'scanning'
-                  ? { ...progress, scannedMarkets, totalMarkets: marketCount }
-                  : progress
-              );
-            }
-          );
-        } catch (error) {
-          scanFailed = true;
-          await countdown;
-          throw error;
-        }
-        const countdownComplete = await countdown;
-        if (!countdownComplete || session.stopRequested) return null;
+        if (session.stopRequested) return null;
         if (candidates?.length) {
           const availableCandidates = candidates.filter(
             (candidate) => !rejectedCandidates.has(
@@ -789,15 +728,12 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
             )
           );
           const leadingCandidate = availableCandidates.find(
-            (candidate) =>
-              candidate.eligibleForTrading &&
-              candidate.triggerMatches >= requiredMatches
+            (candidate) => candidate.eligibleForTrading
           ) ?? availableCandidates[0];
           if (!leadingCandidate) continue;
           const prediction = getCandidatePrediction(
             leadingCandidate,
-            scanNumber,
-            requiredMatches
+            scanNumber
           );
           latestPrediction = prediction;
           setAutoTradingScanProgress((progress) =>
@@ -829,14 +765,13 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
           );
           if (
             !rejectedCandidates.has(candidateKey) &&
-            candidate.eligibleForTrading &&
-            candidate.triggerMatches >= requiredTriggerMatches
+            candidate.eligibleForTrading
           ) {
             return candidate;
           }
         }
 
-        const nextScanCandidates = await scanForMarket(requiredTriggerMatches);
+        const nextScanCandidates = await scanForMarket();
         if (!nextScanCandidates) return null;
         candidatesFromCurrentScan = nextScanCandidates;
         nextCandidateIndex = 0;
@@ -847,8 +782,7 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
     const useScannedMarket = (candidate: MarketScanCandidate) => {
       const prediction = getCandidatePrediction(
         candidate,
-        scanNumber,
-        requiredTriggerMatches
+        scanNumber
       );
       latestPrediction = prediction;
       currentCandidateRef.current = candidate;
@@ -881,7 +815,6 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
           ? {
               ...progress,
               phase: 'selected',
-              countdownSeconds: 0,
               selectedMarket: marketName,
               selectedContractMode: candidate.contractMode,
               estimatedWinRate: candidate.estimatedWinRate,
@@ -893,26 +826,20 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
     };
 
     const rejectCandidateAndRescan = async (
-      candidate: MarketScanCandidate,
-      reason: 'no-return' | 'negative-ev'
+      candidate: MarketScanCandidate
     ): Promise<boolean> => {
       const candidateKey = getScanCandidateKey(
         candidate.symbol.underlying_symbol,
         candidate.contractMode
       );
       rejectedCandidates.add(candidateKey);
-      if (reason === 'no-return') {
-        skippedNoReturnCandidates.add(candidateKey);
-      } else {
-        skippedNegativeEvCandidates.add(candidateKey);
-      }
+      skippedNoReturnCandidates.add(candidateKey);
 
       setAutoTradingScanProgress((progress) =>
         progress
           ? {
               ...progress,
               skippedNoReturnMarkets: skippedNoReturnCandidates.size,
-              skippedNegativeEvSetups: skippedNegativeEvCandidates.size,
             }
           : progress
       );
@@ -954,8 +881,7 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
           ? evaluateUserTradingStrategy(
               market,
               latestPrices,
-              strategy,
-              requiredTriggerMatches
+              strategy
             )
           : null;
         if (!refreshedCandidate) {
@@ -991,7 +917,7 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
         } catch (error) {
           if (session.stopRequested) break;
           if (isNoReturnContractError(error)) {
-            const nextCandidateFound = await rejectCandidateAndRescan(candidate, 'no-return');
+            const nextCandidateFound = await rejectCandidateAndRescan(candidate);
             if (!nextCandidateFound) break;
             continue;
           }
@@ -1015,13 +941,7 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
           throw new Error(localize('The proposal did not include a valid potential payout.'));
         }
         if (quote.payout <= quote.ask_price) {
-          const nextCandidateFound = await rejectCandidateAndRescan(candidate, 'no-return');
-          if (!nextCandidateFound) break;
-          continue;
-        }
-        const expectedProfit = candidate.predictedWinRate * quote.payout - quote.ask_price;
-        if (expectedProfit <= 0) {
-          const nextCandidateFound = await rejectCandidateAndRescan(candidate, 'negative-ev');
+          const nextCandidateFound = await rejectCandidateAndRescan(candidate);
           if (!nextCandidateFound) break;
           continue;
         }
@@ -1059,7 +979,7 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
         }
         if (!purchase) {
           if (isNoReturnContractError(purchaseError)) {
-            const nextCandidateFound = await rejectCandidateAndRescan(candidate, 'no-return');
+            const nextCandidateFound = await rejectCandidateAndRescan(candidate);
             if (!nextCandidateFound) break;
             continue;
           }
@@ -1072,7 +992,6 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
         }
         clearBuyResult();
         setAutoTradingScanProgress(null);
-        requiredTriggerMatches = INITIAL_STRATEGY_MATCH_REQUIREMENT;
 
         tradeCount += 1;
         setAutoTradingTradeCount(tradeCount);
@@ -1119,24 +1038,6 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
         }
         martingaleProgress = next.progress;
 
-        if (!session.stopRequested) {
-          const recentPrices = await fetchTickHistory(
-            tradingWs,
-            market.underlying_symbol,
-            9,
-            () => session.stopRequested
-          );
-          if (session.stopRequested) break;
-
-          if (recentPrices && hasPriceReversalRisk(recentPrices)) {
-            requiredTriggerMatches = RESUME_STRATEGY_MATCH_REQUIREMENT;
-            candidatesFromCurrentScan = [];
-            nextCandidateIndex = 0;
-            const nextMarket = await selectNextCandidate();
-            if (!nextMarket) break;
-            useScannedMarket(nextMarket);
-          }
-        }
       }
 
       if (session.stopRequested) {
