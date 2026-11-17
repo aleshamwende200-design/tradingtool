@@ -24,6 +24,8 @@ export interface SavedBotSettings {
   maximumStake?: string;
   duration?: number;
   recoveryEnabled?: boolean;
+  takeProfit?: string;
+  stopLoss?: string;
 }
 
 export type StrategyCompilation =

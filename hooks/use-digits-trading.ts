@@ -50,6 +50,7 @@ export interface AutoTradingScanProgress {
   scannedMarkets: number;
   totalMarkets: number;
   scanNumber: number;
+  ruleDescription: string;
   selectedMarket: string | null;
   selectedContractMode: Exclude<ContractMode, 'DIGITMATCH'> | null;
   estimatedWinRate: number | null;
@@ -642,8 +643,8 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
       ? 1
       : Number(martingaleValues[martingaleMode]);
     try {
-      takeProfitTarget = parseTarget(takeProfit, localize('Take profit'));
-      stopLossTarget = parseTarget(stopLoss, localize('Stop loss'));
+      takeProfitTarget = parseTarget(settings.takeProfit ?? takeProfit, localize('Take profit'));
+      stopLossTarget = parseTarget(settings.stopLoss ?? stopLoss, localize('Stop loss'));
       if (takeProfitTarget === null && stopLossTarget === null) {
         throw new Error(localize('Set a take-profit or stop-loss target before starting the strategy bot.'));
       }
@@ -666,11 +667,6 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
         throw new Error(localize('Log in and connect before starting an automatic trading session.'));
       }
       if (symbols.length === 0) throw new Error(localize('No markets are available to scan.'));
-      if (settings.marketSymbol && !getScannableMarkets(symbols).some(
-        (symbol) => symbol.underlying_symbol === settings.marketSymbol
-      )) {
-        throw new Error(localize('The selected market is no longer available for bot trading.'));
-      }
     } catch (error) {
       toast.error(localize('Risk settings are invalid'), {
         description: error instanceof Error ? error.message : localize('Check your risk settings and try again.'),
@@ -722,9 +718,7 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
         if (!connected) return null;
         scanNumber += 1;
 
-        const eligibleMarkets = getScannableMarkets(symbols).filter(
-          (symbol) => !settings.marketSymbol || symbol.underlying_symbol === settings.marketSymbol
-        );
+        const eligibleMarkets = getScannableMarkets(symbols);
         if (eligibleMarkets.length === 0) {
           throw new Error(localize('No open, unsuspended continuous indices are available to scan.'));
         }
@@ -744,6 +738,7 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
           scannedMarkets: 0,
           totalMarkets,
           scanNumber,
+          ruleDescription: strategy.description,
           selectedMarket: null,
           selectedContractMode: null,
           estimatedWinRate: null,

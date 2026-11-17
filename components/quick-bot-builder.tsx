@@ -1,13 +1,11 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import type { ActiveSymbol } from '@deriv/core';
 import { Bot, Plus, RotateCcw, Settings2, Trash2, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAppTranslations } from '@/components/custom/i18n-provider';
-import { getScannableMarkets } from '@/lib/market-scanner';
 import { compileUserTradingStrategy } from '@/lib/user-trading-strategy';
 import type { SavedBotSettings } from '@/lib/user-trading-strategy';
 import type { ContractMode } from '@/lib/types';
@@ -27,13 +25,14 @@ interface RuleCondition {
 }
 
 interface QuickBotBuilderProps {
-  symbols: ActiveSymbol[];
   stake: string;
   onStakeChange: (value: string) => void;
   duration: number;
   onDurationChange: (value: number) => void;
   takeProfit: string;
+  onTakeProfitChange: (value: string) => void;
   stopLoss: string;
+  onStopLossChange: (value: string) => void;
   martingaleMode: string;
   martingaleMultiplier: string;
   canSave: boolean;
@@ -94,13 +93,14 @@ function normalizeBarrier(contractMode: Exclude<ContractMode, 'DIGITMATCH'>, val
 }
 
 export function QuickBotBuilder({
-  symbols,
   stake,
   onStakeChange,
   duration,
   onDurationChange,
   takeProfit,
+  onTakeProfitChange,
   stopLoss,
+  onStopLossChange,
   martingaleMode,
   martingaleMultiplier,
   canSave,
@@ -112,7 +112,6 @@ export function QuickBotBuilder({
 }: QuickBotBuilderProps) {
   const { localize } = useAppTranslations();
   const [name, setName] = useState('');
-  const [marketSymbol, setMarketSymbol] = useState('');
   const [analysisType, setAnalysisType] = useState<AnalysisType>('pattern');
   const [conditions, setConditions] = useState<RuleCondition[]>([createCondition(1)]);
   const [nextConditionId, setNextConditionId] = useState(2);
@@ -129,7 +128,6 @@ export function QuickBotBuilder({
 
     const result = compileUserTradingStrategy(template.description);
     setName(template.name);
-    setMarketSymbol('');
     setSaveError(null);
     setSavedNotice(null);
     if (!result.strategy) {
@@ -177,7 +175,6 @@ export function QuickBotBuilder({
     onTemplateApplied();
   }, [localize, onTemplateApplied, template]);
 
-  const scannableMarkets = useMemo(() => getScannableMarkets(symbols), [symbols]);
   const description = useMemo(() => {
     const contract = contractDescription(contractMode, barrier);
     const entries = conditions.map(conditionDescription);
@@ -198,7 +195,6 @@ export function QuickBotBuilder({
 
   const resetDraft = () => {
     setName('');
-    setMarketSymbol('');
     setAnalysisType('pattern');
     setConditions([createCondition(1)]);
     setNextConditionId(2);
@@ -226,13 +222,32 @@ export function QuickBotBuilder({
       setSavedNotice(null);
       return;
     }
+    if (!takeProfit.trim() && !stopLoss.trim()) {
+      setSaveError(localize('Set a take-profit or stop-loss target before creating the bot.'));
+      setSavedNotice(null);
+      return;
+    }
+    const riskTargets: Array<[string, string]> = [
+      [localize('Take profit'), takeProfit],
+      [localize('Stop loss'), stopLoss],
+    ];
+    for (const [label, value] of riskTargets) {
+      if (value.trim() === '') continue;
+      const target = Number(value);
+      if (!Number.isFinite(target) || target <= 0) {
+        setSaveError(localize('{{label}} must be greater than zero.', { label }));
+        setSavedNotice(null);
+        return;
+      }
+    }
 
     const settings: SavedBotSettings = {
-      marketSymbol: marketSymbol || null,
       stake,
       maximumStake,
       duration,
       recoveryEnabled,
+      takeProfit,
+      stopLoss,
     };
     const saved = onSave(name, description, settings);
     if (!saved) {
@@ -256,7 +271,7 @@ export function QuickBotBuilder({
           <div>
             <h3 className="text-sm font-bold text-foreground">{localize('Build your trading rules')}</h3>
             <p className="mt-1 text-xs text-muted-foreground">
-              {localize('Create and review a digit strategy. Run a saved bot to let the engine buy when its rules match.')}
+              {localize('Create and review a digit strategy. The scanner checks every open continuous index and trades one market at a time when the saved bot rules match.')}
             </p>
           </div>
         </div>
@@ -269,31 +284,7 @@ export function QuickBotBuilder({
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1.7fr)_minmax(250px,0.8fr)]">
         <div className="space-y-4">
           <div className="grid gap-3 rounded-lg border border-border/80 bg-card/70 p-3 sm:grid-cols-2 sm:p-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="quick-bot-market">{localize('Market')}</Label>
-              <select
-                id="quick-bot-market"
-                value={marketSymbol}
-                onChange={(event) => {
-                  setMarketSymbol(event.target.value);
-                  setSaveError(null);
-                  setSavedNotice(null);
-                }}
-                disabled={disabled}
-                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
-              >
-                <option value="">{localize('Auto scan open markets')}</option>
-                {scannableMarkets.map((symbol) => (
-                  <option key={symbol.underlying_symbol} value={symbol.underlying_symbol}>
-                    {symbol.underlying_symbol_name}
-                  </option>
-                ))}
-              </select>
-              <p className="text-[10px] text-muted-foreground">
-                {localize('Auto scan checks open continuous markets for your rule.')}
-              </p>
-            </div>
-            <div className="space-y-1.5">
+            <div className="space-y-1.5 sm:col-span-2">
               <Label htmlFor="quick-bot-analysis">{localize('Analysis type')}</Label>
               <select
                 id="quick-bot-analysis"
@@ -317,6 +308,9 @@ export function QuickBotBuilder({
                 <option value="sequence">{localize('Digit sequence')}</option>
               </select>
             </div>
+            <p className="text-[10px] text-muted-foreground sm:col-span-2">
+              {localize('All open continuous index markets are checked. The bot trades one matching market at a time.')}
+            </p>
           </div>
 
           <div className="grid gap-3 rounded-lg border border-border/80 bg-card/70 p-3 sm:grid-cols-2 sm:p-4">
@@ -568,15 +562,43 @@ export function QuickBotBuilder({
                 {localize('Risk management')}
               </h4>
             </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="quick-bot-take-profit">{localize('Take profit')}</Label>
+                <Input
+                  id="quick-bot-take-profit"
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={takeProfit}
+                  onChange={(event) => {
+                    onTakeProfitChange(event.target.value);
+                    setSaveError(null);
+                    setSavedNotice(null);
+                  }}
+                  labelRight="USD"
+                  disabled={disabled}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="quick-bot-stop-loss">{localize('Stop loss')}</Label>
+                <Input
+                  id="quick-bot-stop-loss"
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={stopLoss}
+                  onChange={(event) => {
+                    onStopLossChange(event.target.value);
+                    setSaveError(null);
+                    setSavedNotice(null);
+                  }}
+                  labelRight="USD"
+                  disabled={disabled}
+                />
+              </div>
+            </div>
             <dl className="space-y-2 text-xs">
-              <div className="flex justify-between gap-3">
-                <dt className="text-muted-foreground">{localize('Take profit')}</dt>
-                <dd className="font-medium text-foreground">{takeProfit || '—'} USD</dd>
-              </div>
-              <div className="flex justify-between gap-3">
-                <dt className="text-muted-foreground">{localize('Stop loss')}</dt>
-                <dd className="font-medium text-foreground">{stopLoss || '—'} USD</dd>
-              </div>
               <div className="flex justify-between gap-3">
                 <dt className="text-muted-foreground">{localize('Martingale level')}</dt>
                 <dd className="font-medium capitalize text-foreground">{martingaleMode}</dd>

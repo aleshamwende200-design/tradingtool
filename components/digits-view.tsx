@@ -530,6 +530,8 @@ export function DigitsView({
 
     setActiveSavedBotId(bot.id);
     setActiveDashboardPage('home');
+    if (bot.takeProfit !== undefined) setTakeProfit(bot.takeProfit);
+    if (bot.stopLoss !== undefined) setStopLoss(bot.stopLoss);
     try {
       await startAutoTrading(compilation.strategy, bot);
     } catch (error) {
@@ -539,7 +541,7 @@ export function DigitsView({
     } finally {
       setActiveSavedBotId(null);
     }
-  }, [localize, setActiveDashboardPage, startAutoTrading]);
+  }, [localize, setActiveDashboardPage, setStopLoss, setTakeProfit, startAutoTrading]);
 
   const botBuilderProps = {
     canSave: savedBotStore.isLoaded && savedBotStore.canPersist,
@@ -591,18 +593,19 @@ export function DigitsView({
     disabled: autoTradingStatus !== 'idle',
   };
   const quickBotBuilderProps = {
-    symbols,
     stake,
     onStakeChange: setStake,
     duration,
     onDurationChange: setDuration,
     takeProfit,
+    onTakeProfitChange: setTakeProfit,
     stopLoss,
+    onStopLossChange: setStopLoss,
     martingaleMode,
     martingaleMultiplier: martingaleValues[martingaleMode],
     canSave: savedBotStore.isLoaded && savedBotStore.canPersist,
     storageError: savedBotStore.storageError,
-    disabled: !!editMode,
+    disabled: !!editMode || autoTradingStatus !== 'idle',
     template: pendingStrategyTemplate,
     onTemplateApplied: handleTemplateApplied,
     onSave: savedBotStore.saveBot,

@@ -19,6 +19,8 @@ export interface SavedBot {
   maximumStake?: string;
   duration?: number;
   recoveryEnabled?: boolean;
+  takeProfit?: string;
+  stopLoss?: string;
 }
 
 export interface BotBuilderTemplate {
@@ -55,7 +57,15 @@ function isSavedBot(value: unknown): value is SavedBot {
         Number(value.maximumStake) > 0)) &&
     (!('duration' in value) ||
       (typeof value.duration === 'number' && Number.isInteger(value.duration) && value.duration > 0)) &&
-    (!('recoveryEnabled' in value) || typeof value.recoveryEnabled === 'boolean')
+    (!('recoveryEnabled' in value) || typeof value.recoveryEnabled === 'boolean') &&
+    (!('takeProfit' in value) ||
+      (typeof value.takeProfit === 'string' &&
+        (value.takeProfit.trim() === '' ||
+          (Number.isFinite(Number(value.takeProfit)) && Number(value.takeProfit) > 0)))) &&
+    (!('stopLoss' in value) ||
+      (typeof value.stopLoss === 'string' &&
+        (value.stopLoss.trim() === '' ||
+          (Number.isFinite(Number(value.stopLoss)) && Number(value.stopLoss) > 0))))
   );
 }
 
@@ -403,14 +413,15 @@ export function SavedBotsPanel({
                 <div className="min-w-0">
                   <p className="truncate text-sm font-semibold text-foreground">{bot.name}</p>
                   <p className="mt-1 break-words text-xs text-muted-foreground">{bot.description}</p>
-                  {(bot.marketSymbol || bot.stake || bot.maximumStake || bot.duration) && (
+                  {(bot.stake || bot.maximumStake || bot.duration || bot.takeProfit || bot.stopLoss) && (
                     <p className="mt-1 text-[10px] text-muted-foreground">
-                      {localize('Market: {{market}} · Stake: {{stake}} USD · Max: {{maximumStake}} USD · Duration: {{duration}} ticks', {
-                        market: bot.marketSymbol ?? localize('Auto scan'),
+                      {localize('Markets: all open continuous indices · Stake: {{stake}} USD · Max: {{maximumStake}} USD · Duration: {{duration}} ticks', {
                         stake: bot.stake ?? '2.5',
                         maximumStake: bot.maximumStake ?? localize('No limit'),
                         duration: bot.duration ?? 2,
                       })}
+                      {bot.takeProfit && ` · ${localize('TP: {{value}} USD', { value: bot.takeProfit })}`}
+                      {bot.stopLoss && ` · ${localize('SL: {{value}} USD', { value: bot.stopLoss })}`}
                       {bot.recoveryEnabled === false && ` · ${localize('Recovery off')}`}
                     </p>
                   )}

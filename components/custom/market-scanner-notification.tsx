@@ -110,10 +110,13 @@ export function MarketScannerNotification({
               <span aria-live="polite" aria-atomic="true">{description}</span>
             </div>
             <p className="mt-1 text-[11px] text-muted-foreground">
-              {localize('{{scanned}} of {{total}} open markets checked', {
+              {localize('{{scanned}} of {{total}} open continuous index markets checked', {
                 scanned: progress.scannedMarkets,
                 total: progress.totalMarkets,
               })}
+            </p>
+            <p className="mt-1 break-words text-[11px] leading-relaxed text-muted-foreground">
+              {localize('Bot rule: {{rule}}', { rule: progress.ruleDescription })}
             </p>
             {progress.skippedNoReturnMarkets > 0 && (
               <p className="mt-1 text-[11px] font-medium text-amber-600 dark:text-amber-400">
@@ -187,7 +190,7 @@ export function MarketScannerNotification({
           </div>
         ) : (
           <div className="mt-3 rounded-xl border border-border bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground">
-            {localize('Waiting for your entry condition to match on an open market.')}
+            {localize('Waiting for this bot rule to match on an open market.')}
           </div>
         )}
 
