@@ -39,7 +39,6 @@ interface HomeDashboardProps {
   activeBotId: string | null;
   isConnected: boolean;
   onViewBots: () => void;
-  onViewBotBuilder: () => void;
 }
 
 function MetricCard({
@@ -91,7 +90,6 @@ export function HomeDashboard({
   activeBotId,
   isConnected,
   onViewBots,
-  onViewBotBuilder,
 }: HomeDashboardProps) {
   const { localize, locale } = useAppTranslations();
   const metrics = useMemo(() => {
@@ -224,7 +222,7 @@ export function HomeDashboard({
             type="button"
             size="sm"
             className="h-8 px-2.5 text-xs sm:h-9 sm:px-3"
-            onClick={onViewBotBuilder}
+            onClick={onViewBots}
           >
             <Plus />
             {localize('Create bot')}
@@ -415,7 +413,7 @@ export function HomeDashboard({
               size="sm"
               variant="ghost"
               className="h-8 shrink-0 px-2 text-[11px]"
-              onClick={onViewBotBuilder}
+              onClick={onViewBots}
             >
               {localize('All trades')}
               <ArrowUpRight />
@@ -554,7 +552,7 @@ export function HomeDashboard({
               size="sm"
               variant="outline"
               className="h-8 shrink-0 px-2.5 text-xs"
-              onClick={onViewBotBuilder}
+              onClick={onViewBots}
             >
               <Plus />
               {localize('Create bot')}

@@ -13,9 +13,17 @@ type DigitTrigger =
 export interface UserTradingStrategy {
   contractMode: Exclude<ContractMode, 'DIGITMATCH'>;
   barrier: number | null;
-  trigger: DigitTrigger;
+  triggers: DigitTrigger[];
   description: string;
   contractDescription: string;
+}
+
+export interface SavedBotSettings {
+  marketSymbol?: string | null;
+  stake?: string;
+  maximumStake?: string;
+  duration?: number;
+  recoveryEnabled?: boolean;
 }
 
 export type StrategyCompilation =
@@ -151,8 +159,9 @@ export function compileUserTradingStrategy(description: string): StrategyCompila
     };
   }
 
-  const trigger = compileTrigger(conditionText);
-  if (!trigger) {
+  const triggerParts = conditionText.split(/\s+and\s+/i);
+  const triggers = triggerParts.map(compileTrigger);
+  if (triggers.length === 0 || triggers.some((trigger) => trigger === null)) {
     return {
       strategy: null,
       error: 'Entry condition not recognized. Use a last digit, digit sequence, consecutive even/odd digits, or consecutive high/low digits.',
@@ -163,7 +172,7 @@ export function compileUserTradingStrategy(description: string): StrategyCompila
     strategy: {
       contractMode,
       barrier,
-      trigger,
+      triggers: triggers.filter((trigger): trigger is DigitTrigger => trigger !== null),
       description: normalized,
       contractDescription,
     },
@@ -240,18 +249,23 @@ export function evaluateUserTradingStrategy(
   const predictionPrices = prices
     .filter(Number.isFinite)
     .slice(-MARKET_SCAN_TICK_COUNT);
-  if (predictionPrices.length < MARKET_SCAN_TICK_COUNT) return null;
+  if (predictionPrices.length < MARKET_SCAN_TICK_COUNT || strategy.triggers.length === 0) return null;
 
   const pipSize = pipSizeFromPip(symbol.pip_size);
   const digits = predictionPrices.map((price) => getLastDigit(price, pipSize));
-  const triggerLength = getTriggerLength(strategy.trigger);
-  if (!triggerMatches(digits.slice(-triggerLength), strategy.trigger)) return null;
+  const triggerLength = Math.max(...strategy.triggers.map(getTriggerLength));
+  const matchesTriggers = (context: number[]) =>
+    strategy.triggers.every((trigger) => {
+      const length = getTriggerLength(trigger);
+      return triggerMatches(context.slice(-length), trigger);
+    });
+  if (!matchesTriggers(digits)) return null;
 
   let triggerMatchesInHistory = 0;
   let wins = 0;
   for (let outcomeIndex = triggerLength; outcomeIndex < digits.length; outcomeIndex += 1) {
-    const context = digits.slice(outcomeIndex - triggerLength, outcomeIndex);
-    if (!triggerMatches(context, strategy.trigger)) continue;
+    const context = digits.slice(0, outcomeIndex);
+    if (!matchesTriggers(context)) continue;
     triggerMatchesInHistory += 1;
     if (isWinningDigit(digits[outcomeIndex]!, strategy.contractMode, strategy.barrier)) {
       wins += 1;
@@ -272,6 +286,6 @@ export function evaluateUserTradingStrategy(
     sampleCount: predictionPrices.length,
     triggerMatches: triggerMatchesInHistory,
     requiredTriggerMatches,
-    triggerDescription: strategy.trigger.description,
+    triggerDescription: strategy.triggers.map((trigger) => trigger.description).join(' and '),
   };
 }

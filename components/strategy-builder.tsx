@@ -5,7 +5,7 @@ import { AlertCircle, Bot, Play, Plus, Save, Square, Trash2 } from 'lucide-react
 import { Button } from '@/components/ui/button';
 import { useAppTranslations } from '@/components/custom/i18n-provider';
 import { compileUserTradingStrategy } from '@/lib/user-trading-strategy';
-import type { StrategyCompilation } from '@/lib/user-trading-strategy';
+import type { SavedBotSettings, StrategyCompilation } from '@/lib/user-trading-strategy';
 
 const SAVED_BOTS_STORAGE_KEY = 'factorpulse:saved-bots:v1';
 
@@ -14,6 +14,11 @@ export interface SavedBot {
   name: string;
   description: string;
   createdAt: number;
+  marketSymbol?: string | null;
+  stake?: string;
+  maximumStake?: string;
+  duration?: number;
+  recoveryEnabled?: boolean;
 }
 
 export interface BotBuilderTemplate {
@@ -38,7 +43,19 @@ function isSavedBot(value: unknown): value is SavedBot {
     value.description.trim().length > 0 &&
     value.description.length <= 500 &&
     typeof value.createdAt === 'number' &&
-    Number.isFinite(value.createdAt)
+    Number.isFinite(value.createdAt) &&
+    (!('marketSymbol' in value) ||
+      value.marketSymbol === null ||
+      typeof value.marketSymbol === 'string') &&
+    (!('stake' in value) ||
+      (typeof value.stake === 'string' && Number.isFinite(Number(value.stake)) && Number(value.stake) > 0)) &&
+    (!('maximumStake' in value) ||
+      (typeof value.maximumStake === 'string' &&
+        Number.isFinite(Number(value.maximumStake)) &&
+        Number(value.maximumStake) > 0)) &&
+    (!('duration' in value) ||
+      (typeof value.duration === 'number' && Number.isInteger(value.duration) && value.duration > 0)) &&
+    (!('recoveryEnabled' in value) || typeof value.recoveryEnabled === 'boolean')
   );
 }
 
@@ -70,7 +87,11 @@ export function useSavedBots() {
     }
   }, []);
 
-  const saveBot = useCallback((name: string, description: string): boolean => {
+  const saveBot = useCallback((
+    name: string,
+    description: string,
+    settings?: SavedBotSettings
+  ): boolean => {
     if (!isLoaded || !canPersist) return false;
     const trimmedName = name.trim();
     const trimmedDescription = description.trim();
@@ -83,6 +104,7 @@ export function useSavedBots() {
       name: trimmedName,
       description: trimmedDescription,
       createdAt: Date.now(),
+      ...settings,
     };
     const nextBots = [bot, ...bots];
     try {
@@ -121,7 +143,7 @@ interface BotBuilderProps {
   storageError: string | null;
   template: BotBuilderTemplate | null;
   onTemplateApplied: () => void;
-  onSave: (name: string, description: string) => boolean;
+  onSave: (name: string, description: string, settings?: SavedBotSettings) => boolean;
 }
 
 export function BotBuilder({
@@ -234,7 +256,7 @@ export function BotBuilder({
           </p>
           <p className="text-muted-foreground">
             {localize('Entry: {{condition}}', {
-              condition: compilation.strategy.trigger.description,
+              condition: compilation.strategy.triggers.map((trigger) => trigger.description).join(' and '),
             })}
           </p>
         </div>
@@ -324,7 +346,7 @@ export function SavedBotsPanel({
         <div>
           <h3 className="text-sm font-bold text-foreground">{localize('Saved bots')}</h3>
           <p className="text-xs text-muted-foreground">
-            {localize('Create and save bots in Bot Builder, then start them here.')}
+            {localize('Create bots here, then start them from this list.')}
           </p>
         </div>
         <Button type="button" size="sm" variant="outline" onClick={onCreateBot} disabled={disabled}>
@@ -379,6 +401,17 @@ export function SavedBotsPanel({
                 <div className="min-w-0">
                   <p className="truncate text-sm font-semibold text-foreground">{bot.name}</p>
                   <p className="mt-1 break-words text-xs text-muted-foreground">{bot.description}</p>
+                  {(bot.marketSymbol || bot.stake || bot.maximumStake || bot.duration) && (
+                    <p className="mt-1 text-[10px] text-muted-foreground">
+                      {localize('Market: {{market}} · Stake: {{stake}} USD · Max: {{maximumStake}} USD · Duration: {{duration}} ticks', {
+                        market: bot.marketSymbol ?? localize('Auto scan'),
+                        stake: bot.stake ?? '2.5',
+                        maximumStake: bot.maximumStake ?? localize('No limit'),
+                        duration: bot.duration ?? 2,
+                      })}
+                      {bot.recoveryEnabled === false && ` · ${localize('Recovery off')}`}
+                    </p>
+                  )}
                   <p className="mt-1 text-[10px] text-muted-foreground">
                     {localize('Saved {{date}}', {
                       date: new Intl.DateTimeFormat(locale, {

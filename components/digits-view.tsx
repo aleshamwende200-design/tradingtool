@@ -35,6 +35,7 @@ import { DigitStatsBar } from './digit-stats-bar';
 import { ContractModeSelector, TradeControls } from './trade-controls';
 import { RiskManagementControls } from './risk-management-controls';
 import { BotBuilder, SavedBotsPanel, useSavedBots } from './strategy-builder';
+import { QuickBotBuilder } from './quick-bot-builder';
 import { ConfigurableDigitsControls, ConfigurableBuyButton } from './configurable-digits-controls';
 import { TradeTypeChips } from '@/components/custom/trade-type-chips';
 import { SymbolSelector } from '@/components/custom/symbol-selector';
@@ -59,7 +60,7 @@ import type {
   AutoTradingThresholdResult,
 } from '@/hooks/use-digits-trading';
 import { compileUserTradingStrategy } from '@/lib/user-trading-strategy';
-import type { UserTradingStrategy } from '@/lib/user-trading-strategy';
+import type { SavedBotSettings, UserTradingStrategy } from '@/lib/user-trading-strategy';
 import type { BotBuilderTemplate, SavedBot } from './strategy-builder';
 import { useSessionTransactions } from '@/hooks/use-session-transactions';
 import { ALL_CONTROL_KEYS } from '../lib/app-config';
@@ -121,7 +122,7 @@ function DashboardSidebar({
     { id: 'home', label: 'Home', icon: Activity },
     { id: 'strategies', label: 'Strategies', icon: BarChart3 },
     { id: 'bots', label: 'Bots', icon: Zap },
-    { id: 'bot-builder', label: 'Bot Builder', icon: ArrowUpRight },
+    { id: 'bot-builder', label: 'Bot Settings', icon: ArrowUpRight },
   ] as const;
 
   const renderSidebarContents = (collapsed: boolean, mobile: boolean) => (
@@ -345,7 +346,7 @@ export interface DigitsViewProps {
   proposal: ProposalInfo | null;
   isProposalLoading: boolean;
   buyContract: () => Promise<void>;
-  startAutoTrading: (strategy: UserTradingStrategy) => Promise<void>;
+  startAutoTrading: (strategy: UserTradingStrategy, settings?: SavedBotSettings) => Promise<void>;
   isBuying: boolean;
   buyResult: BuyResult | null;
   buyError: string | null;
@@ -487,10 +488,6 @@ export function DigitsView({
     setPendingStrategyTemplate(template);
     setActiveDashboardPage('bot-builder');
   }, []);
-  const handleCreateCustomStrategy = useCallback(() => {
-    setPendingStrategyTemplate({ name: '', description: '' });
-    setActiveDashboardPage('bot-builder');
-  }, []);
   const isDashboardPageActive = (page: DashboardPage) =>
     editMode || activeDashboardPage === page;
   const savedBotStore = useSavedBots();
@@ -532,7 +529,7 @@ export function DigitsView({
 
     setActiveSavedBotId(bot.id);
     try {
-      await startAutoTrading(compilation.strategy);
+      await startAutoTrading(compilation.strategy, bot);
     } catch (error) {
       toast.error(localize('Could not start saved bot'), {
         description: error instanceof Error ? error.message : localize('Try again after checking your connection and risk settings.'),
@@ -560,7 +557,15 @@ export function DigitsView({
     status: autoTradingStatus,
     activeBotId: activeSavedBotId,
     disabled: !!editMode,
-    onCreateBot: () => setActiveDashboardPage('bot-builder'),
+    onCreateBot: () => {
+      setActiveDashboardPage('bots');
+      window.setTimeout(() => {
+        document.getElementById('quick-bot-builder')?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'start',
+        });
+      }, 0);
+    },
     onDeleteBot: savedBotStore.deleteBot,
     onStartBot: handleSavedBotStart,
     onStopBot: stopAutoTrading,
@@ -583,6 +588,22 @@ export function DigitsView({
     onStopAutoTrading: stopAutoTrading,
     disabled: autoTradingStatus !== 'idle',
   };
+  const quickBotBuilderProps = {
+    symbols,
+    stake,
+    onStakeChange: setStake,
+    duration,
+    onDurationChange: setDuration,
+    takeProfit,
+    stopLoss,
+    martingaleMode,
+    martingaleMultiplier: martingaleValues[martingaleMode],
+    canSave: savedBotStore.isLoaded && savedBotStore.canPersist,
+    storageError: savedBotStore.storageError,
+    disabled: !!editMode,
+    onSave: savedBotStore.saveBot,
+    onOpenSettings: () => setActiveDashboardPage('bot-builder'),
+  };
 
   const dashboardOverview = !editMode ? (
     <HomeDashboard
@@ -596,7 +617,6 @@ export function DigitsView({
       activeBotId={activeSavedBotId}
       isConnected={isConnected}
       onViewBots={() => setActiveDashboardPage('bots')}
-      onViewBotBuilder={() => setActiveDashboardPage('bot-builder')}
     />
   ) : null;
 
@@ -789,7 +809,9 @@ export function DigitsView({
       {!editMode && activeDashboardPage === 'strategies' && !(appConfig && isMobile) && (
         <StrategiesLibrary
           onUseTemplate={handleUseStrategyTemplate}
-          onCreateCustom={handleCreateCustomStrategy}
+          canSave={savedBotStore.isLoaded && savedBotStore.canPersist}
+          storageError={savedBotStore.storageError}
+          onCreateBot={savedBotStore.saveBot}
         />
       )}
 
@@ -801,7 +823,9 @@ export function DigitsView({
             {!editMode && activeDashboardPage === 'strategies' && (
               <StrategiesLibrary
                 onUseTemplate={handleUseStrategyTemplate}
-                onCreateCustom={handleCreateCustomStrategy}
+                canSave={savedBotStore.isLoaded && savedBotStore.canPersist}
+                storageError={savedBotStore.storageError}
+                onCreateBot={savedBotStore.saveBot}
               />
             )}
             <div className={cn(
@@ -846,6 +870,7 @@ export function DigitsView({
                         {renderConfigurable(CONTROLS_COLUMN_KEYS)}
                       </CardContent>
                     </Card>
+                    <RiskManagementControls {...riskManagementProps} />
                     <TransactionsPanel
                       transactions={transactions}
                       onReset={resetTransactions}
@@ -866,8 +891,8 @@ export function DigitsView({
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="p-4">
+                      <QuickBotBuilder {...quickBotBuilderProps} />
                       <SavedBotsPanel {...savedBotsPanelProps} />
-                      <RiskManagementControls {...riskManagementProps} />
                     </CardContent>
                   </Card>
                 </>
@@ -957,6 +982,7 @@ export function DigitsView({
                         {renderConfigurable(CONTROLS_COLUMN_KEYS)}
                       </CardContent>
                     </Card>
+                    <RiskManagementControls {...riskManagementProps} />
                     <TransactionsPanel
                       transactions={transactions}
                       onReset={resetTransactions}
@@ -990,8 +1016,8 @@ export function DigitsView({
                   </CardHeader>
                   <CardContent className="p-4 sm:p-5">
                     {editMode && renderConfigurable(CONTROLS_COLUMN_KEYS)}
+                    <QuickBotBuilder {...quickBotBuilderProps} />
                     <SavedBotsPanel {...savedBotsPanelProps} />
-                    <RiskManagementControls {...riskManagementProps} />
                   </CardContent>
                 </Card>
               </div>
@@ -1109,6 +1135,7 @@ export function DigitsView({
                           {renderTradeControls(true)}
                         </CardContent>
                       </Card>
+                      <RiskManagementControls {...riskManagementProps} />
                       <TransactionsPanel
                         transactions={transactions}
                         onReset={resetTransactions}
@@ -1124,8 +1151,8 @@ export function DigitsView({
                         !isDashboardPageActive('bots') && 'hidden'
                       )}
                     >
+                      <QuickBotBuilder {...quickBotBuilderProps} />
                       <SavedBotsPanel {...savedBotsPanelProps} />
-                      <RiskManagementControls {...riskManagementProps} />
                     </div>
                   </div>
                 </CardContent>
@@ -1251,6 +1278,7 @@ export function DigitsView({
                     {renderTradeControls(false)}
                   </CardContent>
                 </Card>
+                <RiskManagementControls {...riskManagementProps} />
                 <TransactionsPanel
                   transactions={transactions}
                   onReset={resetTransactions}
@@ -1282,9 +1310,9 @@ export function DigitsView({
                   </span>
                 </CardHeader>
                 <CardContent className="flex flex-col gap-4 p-4 sm:p-5">
+                  <QuickBotBuilder {...quickBotBuilderProps} />
                   <SavedBotsPanel {...savedBotsPanelProps} />
                   {editMode && renderTradeControls(false)}
-                  <RiskManagementControls {...riskManagementProps} />
                 </CardContent>
               </Card>
             </div>

@@ -29,7 +29,7 @@ import {
 } from '../lib/market-scanner';
 import type { MarketScanCandidate } from '../lib/market-scanner';
 import { evaluateUserTradingStrategy } from '../lib/user-trading-strategy';
-import type { UserTradingStrategy } from '../lib/user-trading-strategy';
+import type { SavedBotSettings, UserTradingStrategy } from '../lib/user-trading-strategy';
 import { getNextMartingaleStake, initialMartingaleProgress } from '../lib/martingale';
 import type { MartingaleMode } from '../lib/martingale';
 import { useAppTranslations } from '@/components/custom/i18n-provider';
@@ -380,7 +380,7 @@ interface UseDigitsTradingReturn {
   proposal: ProposalInfo | null;
   isProposalLoading: boolean;
   buyContract: () => Promise<void>;
-  startAutoTrading: (strategy: UserTradingStrategy) => Promise<void>;
+  startAutoTrading: (strategy: UserTradingStrategy, settings?: SavedBotSettings) => Promise<void>;
   isBuying: boolean;
   buyResult: BuyResult | null;
   buyError: string | null;
@@ -611,7 +611,10 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
     }
   }, [buyWithProposal, localize, proposal, stopAutoTrading, tradingWs]);
 
-  const startAutoTrading = useCallback(async (strategy: UserTradingStrategy) => {
+  const startAutoTrading = useCallback(async (
+    strategy: UserTradingStrategy,
+    settings: SavedBotSettings = {}
+  ) => {
     if (autoSessionRef.current) {
       stopAutoTrading();
       return;
@@ -630,8 +633,14 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
 
     let takeProfitTarget: number | null;
     let stopLossTarget: number | null;
-    const baseStake = Number(stake);
-    const multiplier = Number(martingaleValues[martingaleMode]);
+    const baseStake = Number(settings.stake ?? stake);
+    const maximumStake = settings.maximumStake === undefined
+      ? null
+      : Number(settings.maximumStake);
+    const tradeDuration = settings.duration ?? duration;
+    const multiplier = settings.recoveryEnabled === false
+      ? 1
+      : Number(martingaleValues[martingaleMode]);
     try {
       takeProfitTarget = parseTarget(takeProfit, localize('Take profit'));
       stopLossTarget = parseTarget(stopLoss, localize('Stop loss'));
@@ -641,6 +650,15 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
       if (!Number.isFinite(baseStake) || baseStake <= 0) {
         throw new Error(localize('Stake must be greater than zero.'));
       }
+      if (maximumStake !== null && (
+        !Number.isFinite(maximumStake) ||
+        maximumStake < baseStake
+      )) {
+        throw new Error(localize('Maximum stake must be at least the initial stake.'));
+      }
+      if (!Number.isInteger(tradeDuration) || tradeDuration < 1 || tradeDuration > 200) {
+        throw new Error(localize('Duration must be between 1 and 200 ticks.'));
+      }
       if (!Number.isFinite(multiplier) || multiplier < 1) {
         throw new Error(localize('Martingale multiplier must be at least 1.'));
       }
@@ -648,6 +666,11 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
         throw new Error(localize('Log in and connect before starting an automatic trading session.'));
       }
       if (symbols.length === 0) throw new Error(localize('No markets are available to scan.'));
+      if (settings.marketSymbol && !getScannableMarkets(symbols).some(
+        (symbol) => symbol.underlying_symbol === settings.marketSymbol
+      )) {
+        throw new Error(localize('The selected market is no longer available for bot trading.'));
+      }
     } catch (error) {
       toast.error(localize('Risk settings are invalid'), {
         description: error instanceof Error ? error.message : localize('Check your risk settings and try again.'),
@@ -699,7 +722,9 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
         if (!connected) return null;
         scanNumber += 1;
 
-        const eligibleMarkets = getScannableMarkets(symbols);
+        const eligibleMarkets = getScannableMarkets(symbols).filter(
+          (symbol) => !settings.marketSymbol || symbol.underlying_symbol === settings.marketSymbol
+        );
         if (eligibleMarkets.length === 0) {
           throw new Error(localize('No open, unsuspended continuous indices are available to scan.'));
         }
@@ -742,7 +767,7 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
         try {
           candidates = await scanMarkets(
             tradingWs,
-            symbols,
+            eligibleMarkets,
             strategy,
             requiredMatches,
             () => session.stopRequested,
@@ -957,7 +982,7 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
           contract_type: candidate.contractMode,
           currency: 'USD',
           underlying_symbol: market.underlying_symbol,
-          duration,
+          duration: tradeDuration,
           duration_unit: 't',
           ...(barrier !== undefined ? { barrier } : {}),
         };
@@ -1087,6 +1112,12 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
           settledProfit,
           martingaleProgress
         );
+        if (maximumStake !== null && next.stake > maximumStake) {
+          stopReason = localize(
+            'Maximum stake limit reached. The bot stopped before exceeding the configured stake limit.'
+          );
+          break;
+        }
         nextStake = next.stake;
         if (!Number.isFinite(nextStake) || nextStake <= 0) {
           throw new Error(localize('Martingale stake exceeded the supported numeric range. Auto-trading was stopped.'));
