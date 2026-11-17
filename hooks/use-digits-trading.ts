@@ -14,7 +14,6 @@ import type {
   DurationLimits,
   BuyResult,
   ProposalResponse,
-  TicksHistoryResponse,
 } from '@deriv/core';
 import { toast } from 'sonner';
 import { useBaseTrading } from '@/hooks/use-base-trading';
@@ -44,6 +43,7 @@ export interface AutoTradingScanProgress {
   phase: 'connecting' | 'scanning' | 'selected';
   scannedMarkets: number;
   totalMarkets: number;
+  unavailableMarkets: number;
   scanNumber: number;
   ruleDescription: string;
   selectedMarket: string | null;
@@ -66,7 +66,15 @@ export interface AutoTradingPrediction {
   eligibleForTrading: boolean;
 }
 
-type MarketScanProgressCallback = (scannedMarkets: number, totalMarkets: number) => void;
+type MarketScanProgressCallback = (
+  liveMarkets: number,
+  totalMarkets: number,
+  unavailableMarkets: number
+) => void;
+type ActiveTickSubscriber = (
+  symbol: string,
+  handler: (tick: Tick) => void
+) => (() => void) | null;
 
 function getCandidatePrediction(
   candidate: MarketScanCandidate,
@@ -90,14 +98,6 @@ function getScanCandidateKey(symbol: string, contractMode: ContractMode): string
   return `${symbol}:${contractMode}`;
 }
 
-function hasAvailableScanMode(
-  symbol: string,
-  contractMode: Exclude<ContractMode, 'DIGITMATCH'>,
-  excludedCandidates: Set<string>
-): boolean {
-  return !excludedCandidates.has(getScanCandidateKey(symbol, contractMode));
-}
-
 function isNoReturnContractError(error: unknown): boolean {
   if (!isDerivApiError(error)) return false;
   const code = error.code.replace(/[^a-z]/gi, '').toLowerCase();
@@ -107,125 +107,166 @@ function isNoReturnContractError(error: unknown): boolean {
     .test(error.message);
 }
 
-async function fetchTickHistory(
-  ws: NonNullable<UseBaseTradingParams['ws']>,
-  symbol: string,
-  count: number,
-  shouldStop: () => boolean
-): Promise<number[] | null> {
-  const deadline = Date.now() + CONTRACT_SETTLEMENT_TIMEOUT_MS;
-
-  while (true) {
-    const connected = await waitForConnection(ws, deadline, shouldStop);
-    if (!connected) return null;
-
-    let connectionDropped = false;
-    const removeConnectionListener = ws.onConnectionStateChange((isConnected) => {
-      if (!isConnected) connectionDropped = true;
-    });
-
-    try {
-      const response = await ws.send<TicksHistoryResponse>({
-        ticks_history: symbol,
-        end: 'latest',
-        count,
-        style: 'ticks',
-      });
-      if (connectionDropped) continue;
-
-      return (response.history?.prices ?? [])
-        .map(Number)
-        .filter((price) => Number.isFinite(price));
-    } catch (error) {
-      if (!connectionDropped && ws.isConnected) throw error;
-      if (shouldStop()) return null;
-      if (Date.now() >= deadline) {
-        throw new Error('Timed out retrieving tick history after the WebSocket connection was interrupted.');
-      }
-    } finally {
-      removeConnectionListener();
-    }
-  }
-}
-
 async function scanMarkets(
   ws: NonNullable<UseBaseTradingParams['ws']>,
   symbols: ActiveSymbol[],
   strategy: UserTradingStrategy,
   shouldStop: () => boolean,
-  getLiveTickBuffer: () => { symbol: string | null; prices: number[] },
+  subscribeToActiveTicks: ActiveTickSubscriber,
+  isCandidateRejected: (candidate: MarketScanCandidate) => boolean,
   onProgress: MarketScanProgressCallback
-): Promise<MarketScanCandidate[] | null> {
-  const candidates: MarketScanCandidate[] = [];
-  const failures: string[] = [];
-  const eligibleSymbols = getScannableMarkets(symbols);
-  if (eligibleSymbols.length === 0) {
+): Promise<MarketScanCandidate | null | typeof CONNECTION_LOST> {
+  const openSymbols = Array.from(
+    new Map(
+      getScannableMarkets(symbols).map((symbol) => [symbol.underlying_symbol, symbol])
+    ).values()
+  );
+  if (openSymbols.length === 0) {
     throw new Error('No open, unsuspended continuous indices are available to scan.');
   }
-  const openSymbols = eligibleSymbols;
-  if (openSymbols.length === 0) return [];
+  const symbolsByCode = new Map(
+    openSymbols.map((symbol) => [symbol.underlying_symbol, symbol])
+  );
+  const pricesBySymbol = new Map<string, number[]>();
+  const lastTickBySymbol = new Map<string, string>();
+  const marketsWithTicks = new Set<string>();
 
-  let nextIndex = 0;
-  let scannedMarkets = 0;
-  onProgress(scannedMarkets, openSymbols.length);
+  return new Promise((resolve, reject) => {
+    let finished = false;
+    let availableFeeds = 0;
+    let unavailableMarkets = 0;
+    let settledSubscriptions = 0;
+    let pendingSubscriptions = 0;
+    let pollForStop: ReturnType<typeof setInterval> | null = null;
+    let removeConnectionListener = () => {};
+    const activeUnsubscribers = new Set<() => void>();
+    const streamUnsubscribers = new Set<() => Promise<void>>();
+    const subscriptionTasksBySymbol = new Map<string, Promise<void>>();
 
-  const scanWorker = async () => {
-    while (!shouldStop()) {
-      const index = nextIndex;
-      nextIndex += 1;
-      const symbol = openSymbols[index];
-      if (!symbol) return;
+    const finish = (result: MarketScanCandidate | null | typeof CONNECTION_LOST, error?: Error) => {
+      if (finished) return;
+      finished = true;
+      if (pollForStop) clearInterval(pollForStop);
+      removeConnectionListener();
+      activeUnsubscribers.forEach((unsubscribe) => unsubscribe());
+      activeUnsubscribers.clear();
 
-      try {
-        const historyPrices = await fetchTickHistory(
-          ws,
-          symbol.underlying_symbol,
-          MARKET_SCAN_TICK_COUNT,
-          shouldStop
-        );
-        const liveTickBuffer = getLiveTickBuffer();
-        const prices = liveTickBuffer.symbol === symbol.underlying_symbol &&
-          liveTickBuffer.prices.length >= (historyPrices?.length ?? 0)
-          ? liveTickBuffer.prices
-          : historyPrices;
-        if (prices && !shouldStop()) {
-          const candidate = evaluateUserTradingStrategy(
-            symbol,
-            prices,
-            strategy
-          );
-          if (candidate) candidates.push(candidate);
+      void (async () => {
+        if (result && result !== CONNECTION_LOST) {
+          await subscriptionTasksBySymbol.get(result.symbol.underlying_symbol);
         }
-      } catch (error) {
-        failures.push(
-          `${symbol.underlying_symbol}: ${error instanceof Error ? error.message : String(error)}`
+        await Promise.all(
+          Array.from(streamUnsubscribers, (unsubscribe) => unsubscribe())
         );
-      } finally {
-        scannedMarkets += 1;
-        onProgress(scannedMarkets, openSymbols.length);
+        if (error) reject(error);
+        else resolve(result);
+      })();
+    };
+
+    const handleTick = (symbolCode: string, tick: Tick) => {
+      if (finished) return;
+      if (shouldStop()) {
+        finish(null);
+        return;
       }
+      if (tick.symbol !== symbolCode || !Number.isFinite(tick.quote)) return;
+
+      const tickKey = `${tick.epoch}:${tick.id}`;
+      if (lastTickBySymbol.get(symbolCode) === tickKey) return;
+      lastTickBySymbol.set(symbolCode, tickKey);
+
+      const prices = pricesBySymbol.get(symbolCode) ?? [];
+      prices.push(tick.quote);
+      if (prices.length > MARKET_SCAN_TICK_COUNT) {
+        prices.splice(0, prices.length - MARKET_SCAN_TICK_COUNT);
+      }
+      pricesBySymbol.set(symbolCode, prices);
+
+      if (!marketsWithTicks.has(symbolCode)) {
+        marketsWithTicks.add(symbolCode);
+        onProgress(marketsWithTicks.size, openSymbols.length, unavailableMarkets);
+      }
+
+      const symbol = symbolsByCode.get(symbolCode);
+      if (!symbol) return;
+      const candidate = evaluateUserTradingStrategy(symbol, prices, strategy);
+      if (candidate && !isCandidateRejected(candidate)) finish(candidate);
+    };
+
+    const activeSymbols = new Set<string>();
+    for (const symbol of openSymbols) {
+      const unsubscribe = subscribeToActiveTicks(
+        symbol.underlying_symbol,
+        (tick) => handleTick(symbol.underlying_symbol, tick)
+      );
+      if (!unsubscribe) continue;
+      activeSymbols.add(symbol.underlying_symbol);
+      activeUnsubscribers.add(unsubscribe);
+      availableFeeds += 1;
     }
-  };
 
-  await Promise.all(
-    Array.from({ length: openSymbols.length }, () => scanWorker())
-  );
+    pendingSubscriptions = openSymbols.length - activeSymbols.size;
+    const checkSubscriptionSetup = () => {
+      if (
+        !finished &&
+        settledSubscriptions === pendingSubscriptions &&
+        availableFeeds === 0
+      ) {
+        setTimeout(() => {
+          if (!ws.isConnected) {
+            finish(CONNECTION_LOST);
+          } else {
+            finish(
+              null,
+              new Error('The scanner could not subscribe to live ticks for any open continuous index.')
+            );
+          }
+        }, 0);
+      }
+    };
 
-  if (shouldStop()) return null;
-  if (failures.length > 0) {
-    console.warn('[strategy bot] Some markets could not be evaluated.', failures);
-  }
-  if (candidates.length === 0 && failures.length === openSymbols.length) {
-    throw new Error('The strategy bot could not retrieve tick history for any available market.');
-  }
+    pollForStop = setInterval(() => {
+      if (shouldStop()) finish(null);
+    }, CONNECTION_POLL_INTERVAL_MS);
+    removeConnectionListener = ws.onConnectionStateChange((connected) => {
+      if (!connected) finish(CONNECTION_LOST);
+    });
 
-  candidates.sort((a, b) =>
-    Number(b.eligibleForTrading) - Number(a.eligibleForTrading) ||
-    b.estimatedWinRate - a.estimatedWinRate ||
-    b.triggerMatches - a.triggerMatches ||
-    a.symbol.underlying_symbol.localeCompare(b.symbol.underlying_symbol)
-  );
-  return candidates;
+    if (pendingSubscriptions === 0) {
+      checkSubscriptionSetup();
+    }
+
+    for (const symbol of openSymbols) {
+      if (finished || activeSymbols.has(symbol.underlying_symbol)) continue;
+      const task = ws.subscribe(
+        { ticks: symbol.underlying_symbol },
+        (data) => {
+          const tick = data.tick as Tick | undefined;
+          if (tick) handleTick(symbol.underlying_symbol, tick);
+        }
+      ).then(async (subscription) => {
+        if (finished) {
+          await subscription.unsubscribe();
+          return;
+        }
+        streamUnsubscribers.add(subscription.unsubscribe);
+        availableFeeds += 1;
+      }).catch((error: unknown) => {
+        unavailableMarkets += 1;
+        console.warn('[strategy bot] Could not start a live tick feed.', {
+          symbol: symbol.underlying_symbol,
+          error,
+        });
+        if (!finished) {
+          onProgress(marketsWithTicks.size, openSymbols.length, unavailableMarkets);
+        }
+      }).finally(() => {
+        settledSubscriptions += 1;
+        checkSubscriptionSetup();
+      });
+      subscriptionTasksBySymbol.set(symbol.underlying_symbol, task);
+    }
+  });
 }
 
 export interface AutoTradingThresholdResult {
@@ -431,17 +472,10 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
   } | null>(null);
   const autoSessionRef = useRef<{ stopRequested: boolean } | null>(null);
   const selectSymbolRef = useRef(selectSymbol);
-  const liveTickSymbol = activeSymbol && currentTick?.symbol === activeSymbol.underlying_symbol
-    ? activeSymbol.underlying_symbol
-    : null;
-  const liveTickBufferRef = useRef({
-    symbol: liveTickSymbol,
-    prices,
-  });
-  liveTickBufferRef.current = {
-    symbol: liveTickSymbol,
-    prices,
-  };
+  const activeSymbolRef = useRef(activeSymbol);
+  const activeTickListenersRef = useRef(new Map<string, Set<(tick: Tick) => void>>());
+  const lastForwardedTickRef = useRef<string | null>(null);
+  activeSymbolRef.current = activeSymbol;
 
   const setContractMode = useCallback((mode: ContractMode) => {
     setContractModeRaw(mode);
@@ -457,6 +491,31 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
   useEffect(() => {
     selectSymbolRef.current = selectSymbol;
   }, [selectSymbol]);
+
+  const subscribeToActiveTicks = useCallback<ActiveTickSubscriber>((symbol, handler) => {
+    if (activeSymbolRef.current?.underlying_symbol !== symbol) return null;
+
+    const listeners = activeTickListenersRef.current.get(symbol) ?? new Set<(tick: Tick) => void>();
+    listeners.add(handler);
+    activeTickListenersRef.current.set(symbol, listeners);
+
+    return () => {
+      listeners.delete(handler);
+      if (listeners.size === 0) activeTickListenersRef.current.delete(symbol);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!activeSymbol || !currentTick || currentTick.symbol !== activeSymbol.underlying_symbol) return;
+
+    const tickKey = `${currentTick.symbol}:${currentTick.epoch}:${currentTick.id}`;
+    if (lastForwardedTickRef.current === tickKey) return;
+    lastForwardedTickRef.current = tickKey;
+
+    activeTickListenersRef.current
+      .get(currentTick.symbol)
+      ?.forEach((handler) => handler(currentTick));
+  }, [activeSymbol, currentTick]);
 
   const setMartingaleValue = useCallback((mode: MartingaleMode, value: string) => {
     setMartingaleValues((current) => ({ ...current, [mode]: value }));
@@ -586,8 +645,6 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
       return;
     }
 
-    const selectedContractMode = strategy.contractMode;
-
     const parseTarget = (value: string, label: string): number | null => {
       if (value.trim() === '') return null;
       const parsed = Number(value);
@@ -656,16 +713,11 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
     let martingaleProgress = { ...initialMartingaleProgress };
     let stopReason = '';
     let reachedThreshold: AutoTradingThresholdResult | null = null;
-    const currentMarketRef: { current: ActiveSymbol | null } = { current: null };
-    const currentCandidateRef: { current: MarketScanCandidate | null } = { current: null };
-    const rejectedCandidates = new Set<string>();
+    const rejectedCandidates = new Map<string, number>();
     const skippedNoReturnCandidates = new Set<string>();
     let scanNumber = 0;
-    let latestPrediction: AutoTradingPrediction | null = null;
-    let candidatesFromCurrentScan: MarketScanCandidate[] = [];
-    let nextCandidateIndex = 0;
 
-    const scanForMarket = async (): Promise<MarketScanCandidate[] | null> => {
+    const scanForMarket = async (): Promise<MarketScanCandidate | null> => {
       setAutoTradingStatus('scanning');
       setAutoTradingMarket(null);
       setAutoTradingEstimatedWinRate(null);
@@ -683,98 +735,64 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
         if (eligibleMarkets.length === 0) {
           throw new Error(localize('No open, unsuspended continuous indices are available to scan.'));
         }
-        if (eligibleMarkets.every(
-          (symbol) => !hasAvailableScanMode(
-            symbol.underlying_symbol,
-            selectedContractMode,
-            rejectedCandidates
-          )
-        )) {
-          rejectedCandidates.clear();
-        }
         const totalMarkets = eligibleMarkets.length;
         setAutoTradingScanProgress({
           phase: 'scanning',
           scannedMarkets: 0,
           totalMarkets,
+          unavailableMarkets: 0,
           scanNumber,
           ruleDescription: strategy.description,
           selectedMarket: null,
           selectedContractMode: null,
           estimatedWinRate: null,
-          prediction: latestPrediction,
+          prediction: null,
           skippedNoReturnMarkets: skippedNoReturnCandidates.size,
         });
 
-        const candidates = await scanMarkets(
+        const candidate = await scanMarkets(
           tradingWs,
           eligibleMarkets,
           strategy,
           () => session.stopRequested,
-          () => liveTickBufferRef.current,
-          (scannedMarkets, marketCount) => {
+          subscribeToActiveTicks,
+          (rejectedCandidate) => {
+            const key = getScanCandidateKey(
+              rejectedCandidate.symbol.underlying_symbol,
+              rejectedCandidate.contractMode
+            );
+            const rejectedUntil = rejectedCandidates.get(key);
+            if (rejectedUntil === undefined) return false;
+            if (rejectedUntil <= Date.now()) {
+              rejectedCandidates.delete(key);
+              return false;
+            }
+            return true;
+          },
+          (scannedMarkets, marketCount, unavailableMarkets) => {
             setAutoTradingScanProgress((progress) =>
               progress?.phase === 'scanning'
-                ? { ...progress, scannedMarkets, totalMarkets: marketCount }
+                ? {
+                    ...progress,
+                    scannedMarkets,
+                    totalMarkets: marketCount,
+                    unavailableMarkets,
+                  }
                 : progress
             );
           }
         );
         if (session.stopRequested) return null;
-        if (candidates?.length) {
-          const availableCandidates = candidates.filter(
-            (candidate) => !rejectedCandidates.has(
-              getScanCandidateKey(candidate.symbol.underlying_symbol, candidate.contractMode)
-            )
-          );
-          const leadingCandidate = availableCandidates.find(
-            (candidate) => candidate.eligibleForTrading
-          ) ?? availableCandidates[0];
-          if (!leadingCandidate) continue;
-          const prediction = getCandidatePrediction(
-            leadingCandidate,
-            scanNumber
-          );
-          latestPrediction = prediction;
-          setAutoTradingScanProgress((progress) =>
-            progress?.phase === 'scanning'
-              ? { ...progress, prediction }
-              : progress
-          );
-          return candidates;
-        }
+        if (candidate === CONNECTION_LOST) continue;
+        if (!candidate) return null;
+
+        const prediction = getCandidatePrediction(candidate, scanNumber);
         setAutoTradingScanProgress((progress) =>
           progress?.phase === 'scanning'
-            ? { ...progress, prediction: latestPrediction }
+            ? { ...progress, prediction }
             : progress
         );
-        if (rejectedCandidates.size > 0) rejectedCandidates.clear();
-      }
-      return null;
-    };
-
-    const selectNextCandidate = async (): Promise<MarketScanCandidate | null> => {
-      while (!session.stopRequested) {
-        while (nextCandidateIndex < candidatesFromCurrentScan.length) {
-          const candidate = candidatesFromCurrentScan[nextCandidateIndex];
-          nextCandidateIndex += 1;
-          if (!candidate) continue;
-          const candidateKey = getScanCandidateKey(
-            candidate.symbol.underlying_symbol,
-            candidate.contractMode
-          );
-          if (
-            !rejectedCandidates.has(candidateKey) &&
-            candidate.eligibleForTrading
-          ) {
-            return candidate;
-          }
-        }
-
-        const nextScanCandidates = await scanForMarket();
-        if (!nextScanCandidates) return null;
-        candidatesFromCurrentScan = nextScanCandidates;
-        nextCandidateIndex = 0;
+        return candidate;
       }
       return null;
     };
@@ -784,9 +802,6 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
         candidate,
         scanNumber
       );
-      latestPrediction = prediction;
-      currentCandidateRef.current = candidate;
-      currentMarketRef.current = candidate.symbol;
       setContractMode(candidate.contractMode);
       setTradeTypeRaw(
         candidate.contractMode === 'DIGITOVER' || candidate.contractMode === 'DIGITUNDER'
@@ -825,14 +840,12 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
       setAutoTradingStatus('running');
     };
 
-    const rejectCandidateAndRescan = async (
-      candidate: MarketScanCandidate
-    ): Promise<boolean> => {
+    const skipNoReturnCandidate = (candidate: MarketScanCandidate) => {
       const candidateKey = getScanCandidateKey(
         candidate.symbol.underlying_symbol,
         candidate.contractMode
       );
-      rejectedCandidates.add(candidateKey);
+      rejectedCandidates.set(candidateKey, Date.now() + 5000);
       skippedNoReturnCandidates.add(candidateKey);
 
       setAutoTradingScanProgress((progress) =>
@@ -843,57 +856,21 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
             }
           : progress
       );
-      const nextCandidate = await selectNextCandidate();
-      if (!nextCandidate) return false;
-      useScannedMarket(nextCandidate);
-      return true;
     };
 
     try {
-      const firstMarket = await selectNextCandidate();
-      if (!firstMarket) {
-        stopReason = localize('Strategy bot stopped before a matching market was found.');
-      } else {
-        useScannedMarket(firstMarket);
-      }
-
       while (!session.stopRequested) {
-        const market = currentMarketRef.current;
-        let candidate = currentCandidateRef.current;
-        if (!market || !candidate) {
-          throw new Error(localize('The strategy bot did not select a matching market.'));
-        }
+        const candidate = await scanForMarket();
+        if (!candidate) break;
+        useScannedMarket(candidate);
+        const market = candidate.symbol;
+
         const connected = await waitForConnection(
           tradingWs,
           Date.now() + CONTRACT_SETTLEMENT_TIMEOUT_MS,
           () => session.stopRequested
         );
         if (!connected) break;
-
-        const latestPrices = await fetchTickHistory(
-          tradingWs,
-          market.underlying_symbol,
-          MARKET_SCAN_TICK_COUNT,
-          () => session.stopRequested
-        );
-        if (session.stopRequested) break;
-        const refreshedCandidate = latestPrices
-          ? evaluateUserTradingStrategy(
-              market,
-              latestPrices,
-              strategy
-            )
-          : null;
-        if (!refreshedCandidate) {
-          candidatesFromCurrentScan = [];
-          nextCandidateIndex = 0;
-          const nextCandidate = await selectNextCandidate();
-          if (!nextCandidate) break;
-          useScannedMarket(nextCandidate);
-          continue;
-        }
-        useScannedMarket(refreshedCandidate);
-        candidate = refreshedCandidate;
 
         const barrier = candidate.barrier ?? undefined;
         const proposalParams = {
@@ -917,8 +894,7 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
         } catch (error) {
           if (session.stopRequested) break;
           if (isNoReturnContractError(error)) {
-            const nextCandidateFound = await rejectCandidateAndRescan(candidate);
-            if (!nextCandidateFound) break;
+            skipNoReturnCandidate(candidate);
             continue;
           }
           if (!connectionDropped && tradingWs.isConnected) throw error;
@@ -941,8 +917,7 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
           throw new Error(localize('The proposal did not include a valid potential payout.'));
         }
         if (quote.payout <= quote.ask_price) {
-          const nextCandidateFound = await rejectCandidateAndRescan(candidate);
-          if (!nextCandidateFound) break;
+          skipNoReturnCandidate(candidate);
           continue;
         }
 
@@ -979,8 +954,7 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
         }
         if (!purchase) {
           if (isNoReturnContractError(purchaseError)) {
-            const nextCandidateFound = await rejectCandidateAndRescan(candidate);
-            if (!nextCandidateFound) break;
+            skipNoReturnCandidate(candidate);
             continue;
           }
           if (connectionDroppedDuringPurchase || !tradingWs.isConnected) {
@@ -1071,6 +1045,7 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
     martingaleMode,
     martingaleValues,
     setContractMode,
+    subscribeToActiveTicks,
     symbols,
     stake,
     stopAutoTrading,

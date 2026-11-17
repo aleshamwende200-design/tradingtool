@@ -250,11 +250,12 @@ export function evaluateUserTradingStrategy(
   const predictionPrices = prices
     .filter(Number.isFinite)
     .slice(-MARKET_SCAN_TICK_COUNT);
-  if (predictionPrices.length < MARKET_SCAN_TICK_COUNT || strategy.triggers.length === 0) return null;
+  if (strategy.triggers.length === 0) return null;
 
   const pipSize = pipSizeFromPip(symbol.pip_size);
   const digits = predictionPrices.map((price) => getLastDigit(price, pipSize));
   const triggerLength = Math.max(...strategy.triggers.map(getTriggerLength));
+  if (digits.length < triggerLength) return null;
   const matchesTriggers = (context: number[]) =>
     strategy.triggers.every((trigger) => {
       const length = getTriggerLength(trigger);

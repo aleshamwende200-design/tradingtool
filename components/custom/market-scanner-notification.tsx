@@ -24,7 +24,7 @@ export function MarketScannerNotification({
   const progressPercent = progress.totalMarkets > 0
     ? Math.min(100, (progress.scannedMarkets / progress.totalMarkets) * 100)
     : 0;
-  const scanComplete = progress.totalMarkets > 0 &&
+  const allMarketsLive = progress.totalMarkets > 0 &&
     progress.scannedMarkets >= progress.totalMarkets;
   const statusText = isSelected
     ? localize('STRATEGY MATCHED')
@@ -50,9 +50,11 @@ export function MarketScannerNotification({
   })();
   const description = isSelected
     ? localize('Starting trade')
-    : scanComplete
-      ? localize('Selecting market')
-      : localize('Scanning markets');
+    : allMarketsLive
+      ? localize('Watching live ticks')
+      : progress.scannedMarkets > 0
+        ? localize('Waiting for live ticks')
+        : localize('Connecting live feeds');
 
   return (
     <div className="pointer-events-none fixed inset-0 z-[80] flex items-center justify-center p-4">
@@ -86,7 +88,7 @@ export function MarketScannerNotification({
         <div className="mt-4 flex items-center gap-3">
           <div
             role="status"
-            aria-label={localize('{{percent}} percent scanned', {
+            aria-label={localize('{{percent}} percent of markets live', {
               percent: Math.round(progressPercent),
             })}
             className="flex h-[4.25rem] w-[4.25rem] shrink-0 flex-col items-center justify-center rounded-full border-2 border-primary/45 bg-primary/5 shadow-[0_0_20px_rgb(var(--primary)/0.16)]"
@@ -100,7 +102,7 @@ export function MarketScannerNotification({
             )}
             {!isSelected && (
               <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">
-                {localize('Percent')}
+                {localize('Live')}
               </span>
             )}
           </div>
@@ -110,11 +112,18 @@ export function MarketScannerNotification({
               <span aria-live="polite" aria-atomic="true">{description}</span>
             </div>
             <p className="mt-1 text-[11px] text-muted-foreground">
-              {localize('{{scanned}} of {{total}} open continuous index markets checked', {
+              {localize('{{scanned}} of {{total}} open continuous index markets sending live ticks', {
                 scanned: progress.scannedMarkets,
                 total: progress.totalMarkets,
               })}
             </p>
+            {progress.unavailableMarkets > 0 && (
+              <p className="mt-1 text-[11px] font-medium text-amber-600 dark:text-amber-400">
+                {localize('{{count}} markets could not stream live ticks', {
+                  count: progress.unavailableMarkets,
+                })}
+              </p>
+            )}
             <p className="mt-1 break-words text-[11px] leading-relaxed text-muted-foreground">
               {localize('Bot rule: {{rule}}', { rule: progress.ruleDescription })}
             </p>
@@ -128,7 +137,7 @@ export function MarketScannerNotification({
             <div
               className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted"
               role="progressbar"
-              aria-label={localize('Markets scanned')}
+              aria-label={localize('Live markets')}
               aria-valuemin={0}
               aria-valuemax={Math.max(1, progress.totalMarkets)}
               aria-valuenow={progress.scannedMarkets}
@@ -160,7 +169,7 @@ export function MarketScannerNotification({
                   {(prediction.predictedWinRate * 100).toFixed(1)}%
                 </p>
                 <p className="text-[9px] font-medium text-muted-foreground">
-                  {localize('Rule history')}
+                  {localize('Live sample')}
                 </p>
               </div>
             </div>
@@ -169,7 +178,7 @@ export function MarketScannerNotification({
             </p>
             <div className="mt-1 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-[9px] text-muted-foreground">
               <span>
-                {localize('{{count}} historical matches', {
+                {localize('{{count}} matches in live sample', {
                   count: prediction.triggerMatches,
                 })}
               </span>
