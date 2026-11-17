@@ -11,7 +11,7 @@ import type { SavedBotSettings } from '@/lib/user-trading-strategy';
 import type { ContractMode } from '@/lib/types';
 import type { BotBuilderTemplate } from './strategy-builder';
 
-type ConditionKind = 'digit' | 'parity-run' | 'range-run' | 'sequence';
+type ConditionKind = 'digit' | 'parity-run' | 'range-run' | 'sequence' | 'loss-run';
 type AnalysisType = 'pattern' | 'sequence';
 
 interface RuleCondition {
@@ -65,6 +65,8 @@ function conditionDescription(condition: RuleCondition): string {
       return `after ${condition.length} consecutive ${condition.range} digits`;
     case 'sequence':
       return `after the sequence ${condition.sequence.trim()}`;
+    case 'loss-run':
+      return `after ${condition.length} consecutive losing digits`;
   }
 }
 
@@ -160,6 +162,12 @@ export function QuickBotBuilder({
             ...condition,
             kind: 'sequence',
             sequence: trigger.digits.join(', '),
+          };
+        case 'loss-run':
+          return {
+            ...condition,
+            kind: 'loss-run',
+            length: trigger.length,
           };
       }
     });
@@ -396,6 +404,7 @@ export function QuickBotBuilder({
                       <option value="parity-run">{localize('Even / odd run')}</option>
                       <option value="range-run">{localize('High / low run')}</option>
                       <option value="sequence">{localize('Digit sequence')}</option>
+                      <option value="loss-run">{localize('Contract-loss run')}</option>
                     </select>
                   </div>
                 )}
@@ -463,6 +472,30 @@ export function QuickBotBuilder({
                         disabled={disabled}
                       />
                     </div>
+                  </div>
+                )}
+
+                {condition.kind === 'loss-run' && (
+                  <div className="space-y-1.5">
+                    <Label htmlFor={`quick-condition-loss-length-${condition.id}`}>
+                      {localize('Consecutive losing digits')}
+                    </Label>
+                    <Input
+                      id={`quick-condition-loss-length-${condition.id}`}
+                      type="number"
+                      min="1"
+                      max="8"
+                      step="1"
+                      value={condition.length}
+                      onChange={(event) => updateCondition(
+                        condition.id,
+                        { length: Math.max(1, Math.min(8, Math.round(Number(event.target.value) || 1))) }
+                      )}
+                      disabled={disabled}
+                    />
+                    <p className="text-[10px] leading-relaxed text-muted-foreground">
+                      {localize('A losing digit is determined by this bot’s selected contract and barrier.')}
+                    </p>
                   </div>
                 )}
 

@@ -8,7 +8,8 @@ type DigitTrigger =
   | { kind: 'digit'; digit: number; description: string }
   | { kind: 'sequence'; digits: number[]; description: string }
   | { kind: 'parity-run'; parity: 'even' | 'odd'; length: number; description: string }
-  | { kind: 'range-run'; range: 'high' | 'low'; length: number; description: string };
+  | { kind: 'range-run'; range: 'high' | 'low'; length: number; description: string }
+  | { kind: 'loss-run'; length: number; description: string };
 
 export interface UserTradingStrategy {
   contractMode: Exclude<ContractMode, 'DIGITMATCH'>;
@@ -33,6 +34,20 @@ export type StrategyCompilation =
   | { strategy: null; error: string };
 
 function compileTrigger(condition: string): DigitTrigger | null {
+  const lossRunMatch = condition.match(
+    /\b(\d+)\s+consecutive\s+losing\s+digits?\b/
+  );
+  if (lossRunMatch?.[1]) {
+    const length = Number(lossRunMatch[1]);
+    if (length >= 1 && length <= 8) {
+      return {
+        kind: 'loss-run',
+        length,
+        description: `after ${length} consecutive losing digits`,
+      };
+    }
+  }
+
   const sequenceMatch = condition.match(
     /\b(?:last\s+)?(?:digit\s+)?(?:sequence\s+)?(\d(?:\s*(?:,|then)\s*\d){1,4})\b/
   );
@@ -166,7 +181,7 @@ export function compileUserTradingStrategy(description: string): StrategyCompila
   if (triggers.length === 0 || triggers.some((trigger) => trigger === null)) {
     return {
       strategy: null,
-      error: 'Entry condition not recognized. Use a last digit, digit sequence, consecutive even/odd digits, or consecutive high/low digits.',
+      error: 'Entry condition not recognized. Use a last digit, digit sequence, or consecutive winning/losing, even/odd, or high/low digits.',
     };
   }
 
@@ -190,11 +205,16 @@ function getTriggerLength(trigger: DigitTrigger): number {
       return trigger.digits.length;
     case 'parity-run':
     case 'range-run':
+    case 'loss-run':
       return trigger.length;
   }
 }
 
-function triggerMatches(digits: number[], trigger: DigitTrigger): boolean {
+function triggerMatches(
+  digits: number[],
+  trigger: DigitTrigger,
+  strategy: UserTradingStrategy
+): boolean {
   switch (trigger.kind) {
     case 'digit':
       return digits.length === 1 && digits[0] === trigger.digit;
@@ -208,6 +228,10 @@ function triggerMatches(digits: number[], trigger: DigitTrigger): boolean {
     case 'range-run':
       return digits.length === trigger.length && digits.every(
         (digit) => trigger.range === 'high' ? digit >= 5 : digit <= 4
+      );
+    case 'loss-run':
+      return digits.length === trigger.length && digits.every(
+        (digit) => !isWinningDigit(digit, strategy.contractMode, strategy.barrier)
       );
   }
 }
@@ -259,7 +283,7 @@ export function evaluateUserTradingStrategy(
   const matchesTriggers = (context: number[]) =>
     strategy.triggers.every((trigger) => {
       const length = getTriggerLength(trigger);
-      return triggerMatches(context.slice(-length), trigger);
+      return triggerMatches(context.slice(-length), trigger, strategy);
     });
   if (!matchesTriggers(digits)) return null;
 

@@ -27,6 +27,18 @@ export function getScannableMarkets(symbols: ActiveSymbol[]): ActiveSymbol[] {
   );
 }
 
+export function chooseBestScanCandidate(
+  candidates: MarketScanCandidate[]
+): MarketScanCandidate | null {
+  return [...candidates].sort(
+    (left, right) =>
+      right.estimatedWinRate - left.estimatedWinRate ||
+      right.predictedWinRate - left.predictedWinRate ||
+      right.triggerMatches - left.triggerMatches ||
+      left.symbol.underlying_symbol.localeCompare(right.symbol.underlying_symbol)
+  )[0] ?? null;
+}
+
 export function getContractBarrier(
   contractMode: ContractMode,
   selectedDigit: number | null

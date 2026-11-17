@@ -20,6 +20,7 @@ import { useBaseTrading } from '@/hooks/use-base-trading';
 import type { UseBaseTradingParams } from '@/hooks/use-base-trading';
 import { computeDigitStats, getLastDigit, pipSizeFromPip } from '../lib/digit-stats';
 import {
+  chooseBestScanCandidate,
   getContractBarrier,
   getScannableMarkets,
   MARKET_SCAN_TICK_COUNT,
@@ -124,9 +125,6 @@ async function scanMarkets(
   if (openSymbols.length === 0) {
     throw new Error('No open, unsuspended continuous indices are available to scan.');
   }
-  const symbolsByCode = new Map(
-    openSymbols.map((symbol) => [symbol.underlying_symbol, symbol])
-  );
   const pricesBySymbol = new Map<string, number[]>();
   const lastTickBySymbol = new Map<string, string>();
   const marketsWithTicks = new Set<string>();
@@ -187,10 +185,14 @@ async function scanMarkets(
         onProgress(marketsWithTicks.size, openSymbols.length, unavailableMarkets);
       }
 
-      const symbol = symbolsByCode.get(symbolCode);
-      if (!symbol) return;
-      const candidate = evaluateUserTradingStrategy(symbol, prices, strategy);
-      if (candidate && !isCandidateRejected(candidate)) finish(candidate);
+      const candidates = openSymbols.flatMap((symbol) => {
+        const marketPrices = pricesBySymbol.get(symbol.underlying_symbol);
+        if (!marketPrices) return [];
+        const candidate = evaluateUserTradingStrategy(symbol, marketPrices, strategy);
+        return candidate && !isCandidateRejected(candidate) ? [candidate] : [];
+      });
+      const bestCandidate = chooseBestScanCandidate(candidates);
+      if (bestCandidate) finish(bestCandidate);
     };
 
     const activeSymbols = new Set<string>();

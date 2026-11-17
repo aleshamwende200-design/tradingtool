@@ -165,10 +165,10 @@ export function MarketScannerNotification({
               </div>
               <div className="shrink-0 text-right">
                 <p className="font-mono text-sm font-bold text-primary">
-                  {(prediction.predictedWinRate * 100).toFixed(1)}%
+                  {(prediction.estimatedWinRate * 100).toFixed(1)}%
                 </p>
                 <p className="text-[9px] font-medium text-muted-foreground">
-                  {localize('Live sample')}
+                  {localize('Recent fit')}
                 </p>
               </div>
             </div>

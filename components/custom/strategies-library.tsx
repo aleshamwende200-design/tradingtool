@@ -9,7 +9,7 @@ import { compileUserTradingStrategy, type StrategyCompilation } from '@/lib/user
 export interface StrategyTemplate {
   id: string;
   name: string;
-  category: 'Parity' | 'High / low' | 'Sequences' | 'Single digit';
+  category: 'Parity' | 'High / low' | 'Single digit';
   contract: string;
   entry: string;
   summary: string;
@@ -18,76 +18,85 @@ export interface StrategyTemplate {
 
 const STRATEGY_TEMPLATES: StrategyTemplate[] = [
   {
-    id: 'even-after-odd-run',
-    name: 'Even after an odd run',
-    category: 'Parity',
-    contract: 'Even',
-    entry: '3 consecutive odd digits',
-    summary: 'A parity-based entry rule you can adjust in Bot Settings.',
-    description: 'even after 3 consecutive odd digits',
-  },
-  {
-    id: 'odd-after-even-run',
-    name: 'Odd after an even run',
-    category: 'Parity',
-    contract: 'Odd',
-    entry: '3 consecutive even digits',
-    summary: 'Use an even-digit sequence as the trigger for an odd contract.',
-    description: 'odd after 3 consecutive even digits',
-  },
-  {
-    id: 'over-after-high-run',
-    name: 'Over after a high run',
+    id: 'over-0-after-loss-run',
+    name: 'Over 0',
     category: 'High / low',
-    contract: 'Over 3',
-    entry: '2 consecutive high digits',
-    summary: 'Pair a high-digit run with a configurable Over contract.',
-    description: 'over 3 after 2 consecutive high digits',
+    contract: 'Over 0',
+    entry: '2 consecutive 0 digits',
+    summary: 'Wait for two consecutive losing digits for Over 0 before scanning for the next entry.',
+    description: 'over 0 after 2 consecutive losing digits',
   },
   {
-    id: 'under-after-low-run',
-    name: 'Under after a low run',
+    id: 'over-1-after-loss-run',
+    name: 'Over 1',
     category: 'High / low',
-    contract: 'Under 6',
-    entry: '2 consecutive low digits',
-    summary: 'Start with a low-digit trigger and review the Under barrier.',
-    description: 'under 6 after 2 consecutive low digits',
+    contract: 'Over 1',
+    entry: '2 consecutive digits from 0 to 1',
+    summary: 'Wait for two consecutive losing digits for Over 1 before scanning for the next entry.',
+    description: 'over 1 after 2 consecutive losing digits',
   },
   {
-    id: 'sequence-123',
-    name: 'Sequence 1, 2, 3',
-    category: 'Sequences',
-    contract: 'Differs from 5',
-    entry: '1 → 2 → 3',
-    summary: 'Use a specific three-digit sequence as the entry condition.',
-    description: 'differs from 5 after the sequence 1, 2, 3',
-  },
-  {
-    id: 'sequence-78',
-    name: 'Sequence 7, 8',
-    category: 'Sequences',
-    contract: 'Differs from 2',
-    entry: '7 → 8',
-    summary: 'A shorter sequence template with an editable differs barrier.',
-    description: 'differs from 2 after the sequence 7, 8',
-  },
-  {
-    id: 'under-after-digit-1',
-    name: 'Under after digit 1',
-    category: 'Single digit',
-    contract: 'Under 6',
-    entry: 'Last digit is 1',
-    summary: 'Trigger from one exact digit and customize the contract barrier.',
-    description: 'under 6 when the last digit is 1',
-  },
-  {
-    id: 'over-after-low-digit',
-    name: 'Over after a low digit',
+    id: 'over-2-after-loss-run',
+    name: 'Over 2',
     category: 'High / low',
     contract: 'Over 2',
-    entry: 'Last digit is low',
-    summary: 'Use the low range (0–4) as a simple entry condition.',
-    description: 'over 2 when the last digit is low',
+    entry: '2 consecutive digits from 0 to 2',
+    summary: 'Wait for two consecutive losing digits for Over 2 before scanning for the next entry.',
+    description: 'over 2 after 2 consecutive losing digits',
+  },
+  {
+    id: 'under-9-after-loss-run',
+    name: 'Under 9',
+    category: 'High / low',
+    contract: 'Under 9',
+    entry: '2 consecutive 9 digits',
+    summary: 'Wait for two consecutive losing digits for Under 9 before scanning for the next entry.',
+    description: 'under 9 after 2 consecutive losing digits',
+  },
+  {
+    id: 'under-8-after-loss-run',
+    name: 'Under 8',
+    category: 'High / low',
+    contract: 'Under 8',
+    entry: '2 consecutive digits from 8 to 9',
+    summary: 'Wait for two consecutive losing digits for Under 8 before scanning for the next entry.',
+    description: 'under 8 after 2 consecutive losing digits',
+  },
+  {
+    id: 'under-7-after-loss-run',
+    name: 'Under 7',
+    category: 'High / low',
+    contract: 'Under 7',
+    entry: '2 consecutive digits from 7 to 9',
+    summary: 'Wait for two consecutive losing digits for Under 7 before scanning for the next entry.',
+    description: 'under 7 after 2 consecutive losing digits',
+  },
+  {
+    id: 'even-after-loss-run',
+    name: 'Even',
+    category: 'Parity',
+    contract: 'Even',
+    entry: '2 consecutive odd digits',
+    summary: 'Wait for two consecutive losing digits for Even before scanning for the next entry.',
+    description: 'even after 2 consecutive losing digits',
+  },
+  {
+    id: 'odd-after-loss-run',
+    name: 'Odd',
+    category: 'Parity',
+    contract: 'Odd',
+    entry: '2 consecutive even digits',
+    summary: 'Wait for two consecutive losing digits for Odd before scanning for the next entry.',
+    description: 'odd after 2 consecutive losing digits',
+  },
+  {
+    id: 'differs-from-5-after-loss-run',
+    name: 'Differs',
+    category: 'Single digit',
+    contract: 'Differs from 5',
+    entry: '2 consecutive 5 digits',
+    summary: 'Use 5 as the differs barrier and wait for two consecutive losses before scanning for entry.',
+    description: 'differs from 5 after 2 consecutive losing digits',
   },
 ];
 
@@ -97,14 +106,12 @@ const FILTERS: StrategyFilter[] = [
   'All',
   'Parity',
   'High / low',
-  'Sequences',
   'Single digit',
 ];
 
 const CATEGORY_ICONS = {
   Parity: Activity,
   'High / low': Zap,
-  Sequences: BarChart3,
   'Single digit': Activity,
 } satisfies Record<StrategyTemplate['category'], typeof Activity>;
 
@@ -236,7 +243,7 @@ export function StrategiesLibrary({
                 className="w-full resize-y rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
               />
               <p className="text-[11px] leading-relaxed text-muted-foreground">
-                {localize('Use a digit contract and an entry condition: differs, over/under, even or odd after a digit, sequence, or digit run. High means 5-9; low means 0-4.')}
+                {localize('Use a digit contract with an entry condition such as a specific digit, sequence, parity/range run, or consecutive losing digits for that contract.')}
               </p>
             </div>
           </div>
