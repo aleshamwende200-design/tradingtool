@@ -6,17 +6,19 @@ import {
   Activity,
   ArrowDownRight,
   ArrowUpRight,
-  BarChart3,
   Bot,
   Clock3,
   Plus,
+  Radar,
   Radio,
   TrendingUp,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAppTranslations } from '@/components/custom/i18n-provider';
 import type { SessionTransaction } from '@/hooks/use-session-transactions';
+import type { AutoTradingScanProgress } from '@/hooks/use-digits-trading';
 import type { SavedBot } from '@/components/strategy-builder';
+import { MarketScannerNotification } from '@/components/custom/market-scanner-notification';
 import { getSymbolDisplayName } from '@/lib/active-symbols-display-names';
 import {
   formatDate,
@@ -36,9 +38,13 @@ interface HomeDashboardProps {
   transactions: SessionTransaction[];
   savedBots: SavedBot[];
   autoTradingStatus: AutoTradingStatus;
+  autoTradingScanProgress: AutoTradingScanProgress | null;
+  autoTradingMarket: string | null;
+  autoTradingTradeCount: number;
   activeBotId: string | null;
   isConnected: boolean;
   onViewBots: () => void;
+  onStopAutoTrading: () => void;
 }
 
 function MetricCard({
@@ -87,9 +93,13 @@ export function HomeDashboard({
   transactions,
   savedBots,
   autoTradingStatus,
+  autoTradingScanProgress,
+  autoTradingMarket,
+  autoTradingTradeCount,
   activeBotId,
   isConnected,
   onViewBots,
+  onStopAutoTrading,
 }: HomeDashboardProps) {
   const { localize, locale } = useAppTranslations();
   const metrics = useMemo(() => {
@@ -109,53 +119,6 @@ export function HomeDashboard({
       sessionProfit,
       tradesToday,
       winRate: closedTrades.length > 0 ? (winningTrades / closedTrades.length) * 100 : null,
-    };
-  }, [transactions]);
-
-  const performance = useMemo(() => {
-    const chronological = [...transactions].sort(
-      (left, right) => left.timestamp - right.timestamp || left.contractId - right.contractId
-    );
-    let cumulativeProfit = 0;
-    const values = [0];
-    for (const trade of chronological) {
-      cumulativeProfit += Number.isFinite(trade.profit) ? trade.profit : 0;
-      values.push(cumulativeProfit);
-    }
-
-    const points = values.length > 61 ? values.slice(-61) : values;
-    let minimum = 0;
-    let maximum = 0;
-    for (const value of points) {
-      minimum = Math.min(minimum, value);
-      maximum = Math.max(maximum, value);
-    }
-    if (minimum === maximum) {
-      minimum -= 1;
-      maximum += 1;
-    }
-
-    const yFor = (value: number) => 20 + ((maximum - value) / (maximum - minimum)) * 150;
-    const coordinates = points.map((value, index) => ({
-      x: 42 + (index / Math.max(points.length - 1, 1)) * 568,
-      y: yFor(value),
-    }));
-    const line = coordinates
-      .map(({ x, y }, index) => `${index === 0 ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)}`)
-      .join(' ');
-    const first = coordinates[0];
-    const last = coordinates[coordinates.length - 1];
-    const zeroY = yFor(0);
-
-    return {
-      line,
-      area: first && last
-        ? `${line} L ${last.x.toFixed(1)} ${zeroY.toFixed(1)} L ${first.x.toFixed(1)} ${zeroY.toFixed(1)} Z`
-        : '',
-      zeroY,
-      hasTrades: transactions.length > 0,
-      minimum,
-      maximum,
     };
   }, [transactions]);
 
@@ -294,112 +257,86 @@ export function HomeDashboard({
       </div>
 
       <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1.7fr)_minmax(280px,0.9fr)]">
-        <section className="min-w-0 rounded-xl border border-border/80 bg-card/90 p-3 shadow-sm sm:p-4">
+        <section className="flex min-w-0 flex-col rounded-xl border border-border/80 bg-card/90 p-3 shadow-sm sm:p-4">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <h3 className="text-sm font-bold text-foreground">{localize('Performance')}</h3>
+              <h3 className="text-sm font-bold text-foreground">{localize('Market scanner')}</h3>
               <p className="text-[11px] text-muted-foreground">
-                {localize('Cumulative P/L during this session')}
+                {localize('Live scanner for your active bot')}
               </p>
             </div>
-            <span className="shrink-0 rounded-md border border-border bg-background/70 px-2 py-1 text-[10px] text-muted-foreground">
-              {localize('This session')}
+            <span className={cn(
+              'shrink-0 rounded-md border px-2 py-1 text-[10px]',
+              autoTradingStatus === 'idle'
+                ? 'border-border bg-background/70 text-muted-foreground'
+                : 'border-emerald-500/30 bg-emerald-500/10 font-semibold text-emerald-500'
+            )}>
+              {autoTradingStatus === 'idle'
+                ? localize('Ready')
+                : autoTradingTradeCount > 0 && !autoTradingScanProgress
+                  ? localize('Trade active')
+                  : localize('Live')}
             </span>
           </div>
 
-          <div className="mt-3">
-            <p className={cn(
-              'text-lg font-bold tabular-nums sm:text-xl',
-              metrics.sessionProfit > 0
-                ? 'text-emerald-500'
-                : metrics.sessionProfit < 0
-                  ? 'text-destructive'
-                  : 'text-foreground'
-            )}>
-              {formatSignedAmount(metrics.sessionProfit, locale)} {currency}
-            </p>
-            <p className="text-[10px] text-muted-foreground">
-              {localize('Current session result')}
-            </p>
+          <div className="mt-4 flex-1">
+            {autoTradingStatus !== 'idle' && autoTradingScanProgress ? (
+              <MarketScannerNotification
+                progress={autoTradingScanProgress}
+                status={autoTradingStatus}
+                onStop={onStopAutoTrading}
+              />
+            ) : autoTradingStatus !== 'idle' ? (
+              <div className="flex min-h-[220px] flex-col items-center justify-center rounded-lg border border-primary/20 bg-primary/[0.04] px-4 py-5 text-center">
+                <Radar className="market-scan-spinner h-7 w-7 text-primary" />
+                <p className="mt-3 text-xs font-semibold text-foreground">
+                  {autoTradingStatus === 'stopping'
+                    ? localize('Stopping bot...')
+                    : autoTradingTradeCount > 0
+                      ? localize('Trade in progress')
+                      : localize('Connecting live feeds')}
+                </p>
+                <p className="mt-1 max-w-sm text-[10px] text-muted-foreground">
+                  {autoTradingTradeCount > 0
+                    ? localize('The next fresh market scan starts after the current trade settles.')
+                    : autoTradingMarket
+                      ? localize('Current market: {{market}}', { market: autoTradingMarket })
+                      : localize('Connecting to open continuous-index markets.')}
+                </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="mt-3 h-8 border-destructive/40 text-destructive hover:bg-destructive/10"
+                  onClick={onStopAutoTrading}
+                  disabled={autoTradingStatus === 'stopping'}
+                >
+                  {autoTradingStatus === 'stopping'
+                    ? localize('Stopping...')
+                    : localize('Stop scan')}
+                </Button>
+              </div>
+            ) : (
+              <div className="flex min-h-[220px] flex-col items-center justify-center rounded-lg border border-dashed border-border/80 px-4 py-5 text-center">
+                <Radar className="h-7 w-7 text-muted-foreground/70" />
+                <p className="mt-3 text-xs font-medium text-foreground">
+                  {localize('Scanner is ready')}
+                </p>
+                <p className="mt-1 max-w-sm text-[10px] text-muted-foreground">
+                  {localize('Run a saved bot to scan live ticks across open markets using its entry rule.')}
+                </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="mt-3 h-8 px-3 text-[11px]"
+                  onClick={onViewBots}
+                >
+                  {localize('Manage bots')}
+                </Button>
+              </div>
+            )}
           </div>
-
-          {performance.hasTrades ? (
-            <svg
-              role="img"
-              aria-label={localize('Cumulative session profit and loss chart')}
-              viewBox="0 0 640 210"
-              preserveAspectRatio="none"
-              className="mt-2 h-44 w-full overflow-visible sm:h-52"
-            >
-              <defs>
-                <linearGradient id="session-performance-fill" x1="0" x2="0" y1="0" y2="1">
-                  <stop
-                    offset="0%"
-                    stopColor={metrics.sessionProfit >= 0 ? 'hsl(var(--primary))' : 'hsl(var(--destructive))'}
-                    stopOpacity="0.22"
-                  />
-                  <stop
-                    offset="100%"
-                    stopColor={metrics.sessionProfit >= 0 ? 'hsl(var(--primary))' : 'hsl(var(--destructive))'}
-                    stopOpacity="0"
-                  />
-                </linearGradient>
-              </defs>
-              {[30, 75, 120, 165].map((y) => (
-                <line
-                  key={y}
-                  x1="42"
-                  x2="610"
-                  y1={y}
-                  y2={y}
-                  stroke="hsl(var(--border))"
-                  strokeDasharray="3 5"
-                  strokeWidth="1"
-                />
-              ))}
-              <line
-                x1="42"
-                x2="610"
-                y1={performance.zeroY}
-                y2={performance.zeroY}
-                stroke="hsl(var(--muted-foreground))"
-                strokeDasharray="4 4"
-                strokeOpacity="0.55"
-                strokeWidth="1"
-              />
-              <text x="2" y="34" className="fill-muted-foreground text-[10px]">
-                {formatSignedAmount(performance.maximum, locale)}
-              </text>
-              <text x="2" y="169" className="fill-muted-foreground text-[10px]">
-                {formatSignedAmount(performance.minimum, locale)}
-              </text>
-              <path d={performance.area} fill="url(#session-performance-fill)" />
-              <path
-                d={performance.line}
-                fill="none"
-                stroke={metrics.sessionProfit >= 0 ? 'hsl(var(--primary))' : 'hsl(var(--destructive))'}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="2.5"
-              />
-              <text x="42" y="202" className="fill-muted-foreground text-[10px]">
-                {localize('Start')}
-              </text>
-              <text x="610" y="202" textAnchor="end" className="fill-muted-foreground text-[10px]">
-                {localize('Now')}
-              </text>
-            </svg>
-          ) : (
-            <div className="mt-3 flex h-44 flex-col items-center justify-center rounded-lg border border-dashed border-border/80 px-4 text-center sm:h-52">
-              <BarChart3 className="h-6 w-6 text-muted-foreground/70" />
-              <p className="mt-2 text-xs font-medium text-foreground">
-                {localize('Your performance chart will appear after your first trade.')}
-              </p>
-              <p className="mt-1 text-[10px] text-muted-foreground">
-                {localize('Run a saved bot to begin tracking session results.')}
-              </p>
-            </div>
-          )}
         </section>
 
         <section className="min-w-0 rounded-xl border border-border/80 bg-card/90 p-3 shadow-sm sm:p-4">
@@ -448,6 +385,8 @@ export function HomeDashboard({
                         {trade.status === 'open' ? localize('Open') : localize('Closed')}
                         {' · '}
                         {formatTradeTime(trade.timestamp, locale)}
+                        {' · '}
+                        {localize('Last digit')} {trade.lastDigit ?? '—'}
                       </p>
                     </div>
                   </div>

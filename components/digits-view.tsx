@@ -24,7 +24,6 @@ import { Header, SettingsPanelFields } from '@/components/custom/header';
 import { LoginPromptDialog } from '@/components/custom/login-prompt-dialog';
 import { PinnedBuyBar } from '@/components/custom/pinned-buy-bar';
 import { ThresholdResultDialog } from '@/components/custom/threshold-result-dialog';
-import { MarketScannerNotification } from '@/components/custom/market-scanner-notification';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useIsMobile } from '@/hooks/use-is-mobile';
 import { useAppTranslations } from '@/components/custom/i18n-provider';
@@ -620,9 +619,13 @@ export function DigitsView({
       transactions={transactions}
       savedBots={savedBotStore.bots}
       autoTradingStatus={autoTradingStatus}
+      autoTradingScanProgress={autoTradingScanProgress}
+      autoTradingMarket={autoTradingMarket}
+      autoTradingTradeCount={autoTradingTradeCount}
       activeBotId={activeSavedBotId}
       isConnected={isConnected}
       onViewBots={() => setActiveDashboardPage('bots')}
+      onStopAutoTrading={stopAutoTrading}
     />
   ) : null;
 
@@ -1374,11 +1377,6 @@ export function DigitsView({
         onOpenChange={setShowLoginPrompt}
         onLogin={editMode ? noopAsyncAuth : onLogin}
         onSignUp={editMode ? noopAsyncAuth : onSignUp}
-      />
-      <MarketScannerNotification
-        progress={autoTradingScanProgress}
-        status={autoTradingStatus}
-        onStop={stopAutoTrading}
       />
       <ThresholdResultDialog result={thresholdResult} onClose={clearThresholdResult} />
     </main>

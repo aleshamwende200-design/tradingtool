@@ -57,11 +57,10 @@ export function MarketScannerNotification({
         : localize('Connecting live feeds');
 
   return (
-    <div className="pointer-events-none fixed inset-0 z-[80] flex items-center justify-center p-4">
-      <section
-        aria-label={localize('Strategy bot progress')}
-        className="market-scanner-card pointer-events-auto max-h-[calc(100dvh-2rem)] w-full max-w-sm overflow-y-auto rounded-2xl border border-primary/45 bg-card/95 p-4 text-foreground shadow-2xl backdrop-blur-xl sm:p-5"
-      >
+    <section
+      aria-label={localize('Strategy bot progress')}
+      className="flex h-full min-h-0 flex-col text-foreground"
+    >
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 items-center gap-3">
             <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-primary/35 bg-primary/10 text-primary">
@@ -209,7 +208,6 @@ export function MarketScannerNotification({
               ? localize('Stop auto-trading')
               : localize('Stop scan')}
         </Button>
-      </section>
-    </div>
+    </section>
   );
 }
