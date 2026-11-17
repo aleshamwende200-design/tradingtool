@@ -31,6 +31,11 @@ interface HeaderProps {
    *  is provided. Prefers the live preview / Customise name, then
    *  NEXT_PUBLIC_DERIV_APP_NAME, then 'Pulse Factor'. */
   appName?: string;
+  settingsOpen?: boolean;
+  onSettingsOpenChange?: (open: boolean) => void;
+  mobileSidebarOpen?: boolean;
+  onMobileSidebarOpenChange?: (open: boolean) => void;
+  hideBrandOnDesktop?: boolean;
 }
 
 function AccountLabel({ type }: { type: 'demo' | 'real' }) {
@@ -70,15 +75,26 @@ function AuthButtons({
 }) {
   if (isAuthenticated) {
     return (
-      <Button variant="outline" size="sm" className="shrink-0" onClick={onLogout}>
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-8 shrink-0 px-2 text-[11px] sm:h-9 sm:px-3 sm:text-sm"
+        onClick={onLogout}
+      >
         <Localize i18n_default_text="Log out" />
       </Button>
     );
   }
 
   return (
-    <div className="flex items-center gap-2">
-      <Button variant="outline" size="sm" onClick={onLogin} disabled={isAuthenticating}>
+    <div className="flex items-center gap-1 sm:gap-2">
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-8 shrink-0 px-2 text-[11px] sm:h-9 sm:px-3 sm:text-sm"
+        onClick={onLogin}
+        disabled={isAuthenticating}
+      >
         {isAuthenticating ? (
           <Localize i18n_default_text="Logging in..." />
         ) : (
@@ -86,7 +102,12 @@ function AuthButtons({
         )}
       </Button>
       {onSignUp && (
-        <Button size="sm" onClick={onSignUp} disabled={isAuthenticating}>
+        <Button
+          size="sm"
+          className="h-8 shrink-0 px-2 text-[11px] sm:h-9 sm:px-3 sm:text-sm"
+          onClick={onSignUp}
+          disabled={isAuthenticating}
+        >
           <Localize i18n_default_text="Sign up" />
         </Button>
       )}
@@ -169,10 +190,10 @@ function AppearancePicker() {
             </svg>
           </Button>
         </PopoverTrigger>
-        {/* Above edit-mode FixedZones (z-[60]); shared PopoverContent is z-50. */}
+        {/* Keeps the theme picker above the sidebar and editor overlays. */}
         <PopoverContent
           align="end"
-          className="z-[100] w-[var(--radix-popover-trigger-width)] min-w-0 p-1"
+          className="z-[110] w-[var(--radix-popover-trigger-width)] min-w-0 p-1"
         >
           <ul className="space-y-0.5">
             {APPEARANCE_OPTIONS.map((option) => (
@@ -202,7 +223,7 @@ function AppearancePicker() {
   );
 }
 
-function MobileAuthButtons({
+export function SettingsAuthActions({
   isAuthenticated,
   isAuthenticating,
   onLogin,
@@ -249,6 +270,38 @@ function MobileAuthButtons({
   );
 }
 
+export function SettingsPanelFields({
+  authState,
+  onClose,
+}: {
+  authState: AuthState;
+  onClose?: () => void;
+}) {
+  return (
+    <>
+      <AppearancePicker />
+      <div className="space-y-3">
+        <p className="text-sm font-semibold text-foreground">
+          <Localize i18n_default_text="Language" />
+        </p>
+        <LanguageSwitcher className="w-full h-11 font-semibold" />
+      </div>
+      {authState === 'authenticated' && (
+        <div className="space-y-3">
+          <p className="text-sm font-semibold text-foreground">
+            <Localize i18n_default_text="Trading" />
+          </p>
+          <Button asChild variant="outline" className="w-full justify-start">
+            <Link href="/reports" onClick={onClose}>
+              <Localize i18n_default_text="View your positions →" />
+            </Link>
+          </Button>
+        </div>
+      )}
+    </>
+  );
+}
+
 export function Header({
   authState,
   accounts,
@@ -259,20 +312,30 @@ export function Header({
   onSignUp,
   logoSrc,
   appName,
+  settingsOpen: controlledSettingsOpen,
+  onSettingsOpenChange,
+  mobileSidebarOpen,
+  onMobileSidebarOpenChange,
+  hideBrandOnDesktop = false,
 }: HeaderProps) {
   const { localize, locale } = useAppTranslations();
   const [logoError, setLogoError] = useState(false);
   const resolvedName = resolveHeaderAppName(appName);
   const logoLetter = resolvedName.charAt(0).toUpperCase() || 'D';
   const [accountSwitcherOpen, setAccountSwitcherOpen] = useState(false);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [internalSettingsOpen, setInternalSettingsOpen] = useState(false);
+  const settingsDialogOpen = controlledSettingsOpen ?? internalSettingsOpen;
+  const setSettingsDialogOpen = onSettingsOpenChange ?? setInternalSettingsOpen;
+  const mobileMenuOpen = onMobileSidebarOpenChange
+    ? mobileSidebarOpen ?? false
+    : settingsDialogOpen;
   const headerRef = useRef<HTMLElement>(null);
   const [menuTop, setMenuTop] = useState(0);
   const isAuthenticated = authState === 'authenticated';
   const isAuthenticating = authState === 'authenticating';
 
   useLayoutEffect(() => {
-    if (!mobileMenuOpen) return;
+    if (!settingsDialogOpen) return;
     const el = headerRef.current;
     const mq = typeof window.matchMedia === 'function' ? window.matchMedia('(min-width: 1024px)') : null;
     const sync = () => {
@@ -285,12 +348,45 @@ export function Header({
       window.removeEventListener('resize', sync);
       mq?.removeEventListener('change', sync);
     };
-  }, [mobileMenuOpen]);
+  }, [settingsDialogOpen]);
 
   const headerBar = (
-      <header ref={headerRef} className="sticky top-0 z-50 flex items-center justify-between border-b border-primary/30 bg-background/90 px-4 py-2.5 shadow-[0_1px_0_rgb(242_161_55/0.08)] backdrop-blur-sm sm:px-6">
-      <div className="flex min-w-0 items-center gap-2 sm:gap-3">
-        <div className="brand-logo-mark flex shrink-0 items-center justify-center">
+      <header ref={headerRef} className="sticky top-0 z-50 flex items-center justify-between border-b border-primary/30 bg-background/90 px-2.5 py-2 shadow-[0_1px_0_rgb(242_161_55/0.08)] backdrop-blur-sm sm:px-6 sm:py-2.5">
+      <div className="flex min-w-0 items-center gap-1 sm:gap-3">
+        {!hideBrandOnDesktop && (
+          <div className="hidden shrink-0 items-center gap-3 lg:flex">
+            <DialogPrimitive.Trigger asChild>
+              <Button variant="outline" size="sm" className="gap-2">
+                <Settings2 className="h-4 w-4" />
+                <Localize i18n_default_text="Settings" />
+              </Button>
+            </DialogPrimitive.Trigger>
+          </div>
+        )}
+        {onMobileSidebarOpenChange ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="shrink-0 lg:hidden"
+            aria-label={localize(mobileMenuOpen ? 'Close menu' : 'Open menu')}
+            aria-expanded={mobileMenuOpen}
+            onClick={() => onMobileSidebarOpenChange(!mobileMenuOpen)}
+          >
+            {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </Button>
+        ) : (
+          <DialogPrimitive.Trigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="shrink-0 lg:hidden"
+              aria-label={localize('Settings')}
+            >
+              {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            </Button>
+          </DialogPrimitive.Trigger>
+        )}
+        <div className={cn('brand-logo-mark hidden shrink-0 items-center justify-center sm:flex', hideBrandOnDesktop && 'lg:hidden')}>
           {!logoSrc || logoError ? (
             <span className="flex h-8 w-8 items-center justify-center rounded bg-primary/10 text-sm font-bold text-primary">
               {logoLetter}
@@ -305,19 +401,11 @@ export function Header({
             />
           )}
         </div>
-        <h1 className="brand-name block min-w-0 max-w-[104px] truncate text-sm font-bold tracking-wide sm:max-w-none sm:text-lg">
+        <h1 className={cn('brand-name block min-w-0 max-w-[88px] truncate text-xs font-bold tracking-wide sm:max-w-none sm:text-lg', hideBrandOnDesktop && 'lg:hidden')}>
           {resolvedName}
         </h1>
       </div>
-      <div className="flex min-w-0 items-center gap-3">
-        <div className="hidden lg:flex items-center gap-3 shrink-0">
-          <DialogPrimitive.Trigger asChild>
-            <Button variant="outline" size="sm" className="gap-2">
-              <Settings2 className="h-4 w-4" />
-              <Localize i18n_default_text="Settings" />
-            </Button>
-          </DialogPrimitive.Trigger>
-        </div>
+      <div className="flex min-w-0 items-center gap-1 sm:gap-3">
         {isAuthenticated && activeAccount && (
           <Popover open={accountSwitcherOpen} onOpenChange={setAccountSwitcherOpen}>
             <PopoverTrigger asChild>
@@ -368,7 +456,7 @@ export function Header({
             </PopoverContent>
           </Popover>
         )}
-        <div className="hidden lg:flex items-center gap-3 shrink-0">
+        <div className="flex shrink-0 items-center gap-1 sm:gap-3">
           <AuthButtons
             isAuthenticated={isAuthenticated}
             isAuthenticating={isAuthenticating}
@@ -377,32 +465,28 @@ export function Header({
             onSignUp={onSignUp}
           />
         </div>
-        <DialogPrimitive.Trigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="lg:hidden shrink-0"
-            aria-label={localize('Your preferences')}
-          >
-            {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-          </Button>
-        </DialogPrimitive.Trigger>
       </div>
       </header>
   );
 
+  if (onMobileSidebarOpenChange) return headerBar;
+
   return (
-    <DialogPrimitive.Root modal={false} open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+    <DialogPrimitive.Root
+      modal={false}
+      open={settingsDialogOpen}
+      onOpenChange={setSettingsDialogOpen}
+    >
       {/* modal=false keeps the header X and portaled popovers interactive */}
       {headerBar}
       {/* Portal to body: Content is position:fixed z-[100], but a class z-index is
           trapped in the edit-mode `sticky z-50` wrapper, so chart FixedZones at
           z-[60] still steal Appearance/Language clicks ("Gráfico · no editable"). */}
       <DialogPrimitive.Portal>
-      <FocusScope loop trapped={mobileMenuOpen}>
+      <FocusScope loop trapped={settingsDialogOpen}>
       <DialogPrimitive.Content
         aria-modal="true"
-        className="fixed inset-x-0 bottom-0 z-[100] flex flex-col bg-background outline-none lg:inset-y-0 lg:left-auto lg:right-0 lg:w-[420px] lg:max-w-[100vw] lg:border-l lg:border-border lg:shadow-2xl"
+        className="fixed bottom-0 left-0 z-[100] flex w-[85vw] max-w-[420px] flex-col border-r border-border bg-background outline-none shadow-2xl lg:inset-y-0"
         style={{ top: menuTop }}
         onPointerDownOutside={preventDismissFromPopoverOrHeader}
         onInteractOutside={preventDismissFromPopoverOrHeader}
@@ -412,20 +496,10 @@ export function Header({
           <div className="flex items-start justify-between gap-4 text-left">
             <div className="space-y-2">
               <DialogPrimitive.Title className="text-lg font-semibold leading-none tracking-tight">
-                <span className="lg:hidden">
-                  <Localize i18n_default_text="Your preferences" />
-                </span>
-                <span className="hidden lg:inline">
-                  <Localize i18n_default_text="Settings" />
-                </span>
+                <Localize i18n_default_text="Settings" />
               </DialogPrimitive.Title>
               <DialogPrimitive.Description className="text-sm text-muted-foreground">
-                <span className="lg:hidden">
-                  <Localize i18n_default_text="A space that feels like you." />
-                </span>
-                <span className="hidden lg:inline">
-                  <Localize i18n_default_text="Manage your appearance and language preferences." />
-                </span>
+                <Localize i18n_default_text="Manage your appearance and language preferences." />
               </DialogPrimitive.Description>
             </div>
             <DialogPrimitive.Close asChild>
@@ -434,33 +508,18 @@ export function Header({
               </Button>
             </DialogPrimitive.Close>
           </div>
-          <AppearancePicker />
-          <div className="space-y-3">
-            <p className="text-sm font-semibold text-foreground">
-              <Localize i18n_default_text="Language" />
-            </p>
-            <LanguageSwitcher className="w-full h-11 font-semibold" />
-          </div>
-          {isAuthenticated && (
-            <div className="space-y-3">
-              <p className="text-sm font-semibold text-foreground">
-                <Localize i18n_default_text="Trading" />
-              </p>
-              <Button asChild variant="outline" className="w-full justify-start">
-                <Link href="/reports" onClick={() => setMobileMenuOpen(false)}>
-                  <Localize i18n_default_text="View your positions →" />
-                </Link>
-              </Button>
-            </div>
-          )}
+          <SettingsPanelFields
+            authState={authState}
+            onClose={() => setSettingsDialogOpen(false)}
+          />
         </div>
         <div className="mt-auto px-6 pb-8 pt-4 flex flex-col gap-3 border-t border-border">
-          <MobileAuthButtons
+          <SettingsAuthActions
             isAuthenticated={isAuthenticated}
             isAuthenticating={isAuthenticating}
             onLogin={onLogin}
             onLogout={() => {
-              setMobileMenuOpen(false);
+              setSettingsDialogOpen(false);
               onLogout();
             }}
             onSignUp={onSignUp}

@@ -71,6 +71,7 @@ export function TransactionsPanel({
 
   return (
     <section
+      id="transactions-panel"
       className="factorpulse-panel flex h-full min-h-[360px] flex-col overflow-hidden rounded-xl border border-primary/35 bg-card/95"
       data-testid="transactions-panel"
     >

@@ -55,11 +55,11 @@ export function LanguageSwitcher({ className }: { className?: string }) {
           </svg>
         </Button>
       </PopoverTrigger>
-      {/* Above edit-mode FixedZones (z-[60]); shared PopoverContent is z-50. */}
+      {/* Keeps the language menu above the sidebar and editor overlays. */}
       <PopoverContent
         align="end"
         className={cn(
-          'z-[100] p-1',
+          'z-[110] p-1',
           isFullWidth ? 'w-[var(--radix-popover-trigger-width)] min-w-0' : 'w-44'
         )}
       >
