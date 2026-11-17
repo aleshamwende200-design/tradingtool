@@ -481,12 +481,13 @@ export function DigitsView({
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [activeDashboardPage, setActiveDashboardPage] = useState<DashboardPage>('home');
+  const isStrategySetupPage = !editMode && activeDashboardPage === 'bot-builder';
   const [activeSavedBotId, setActiveSavedBotId] = useState<string | null>(null);
   const [pendingStrategyTemplate, setPendingStrategyTemplate] = useState<BotBuilderTemplate | null>(null);
   const handleTemplateApplied = useCallback(() => setPendingStrategyTemplate(null), []);
   const handleUseStrategyTemplate = useCallback((template: StrategyTemplate) => {
     setPendingStrategyTemplate(template);
-    setActiveDashboardPage('bot-builder');
+    setActiveDashboardPage('bots');
   }, []);
   const isDashboardPageActive = (page: DashboardPage) =>
     editMode || activeDashboardPage === page;
@@ -518,7 +519,7 @@ export function DigitsView({
     await buyContract();
   }, [editMode, authState, autoTradingStatus, stopAutoTrading, buyContract]);
 
-  const handleSavedBotStart = useCallback(async (bot: SavedBot) => {
+  const handleSavedBotRun = useCallback(async (bot: SavedBot) => {
     const compilation = compileUserTradingStrategy(bot.description);
     if (!compilation.strategy) {
       toast.error(localize('Saved bot strategy is invalid'), {
@@ -528,6 +529,7 @@ export function DigitsView({
     }
 
     setActiveSavedBotId(bot.id);
+    setActiveDashboardPage('home');
     try {
       await startAutoTrading(compilation.strategy, bot);
     } catch (error) {
@@ -537,7 +539,7 @@ export function DigitsView({
     } finally {
       setActiveSavedBotId(null);
     }
-  }, [localize, startAutoTrading]);
+  }, [localize, setActiveDashboardPage, startAutoTrading]);
 
   const botBuilderProps = {
     canSave: savedBotStore.isLoaded && savedBotStore.canPersist,
@@ -567,7 +569,7 @@ export function DigitsView({
       }, 0);
     },
     onDeleteBot: savedBotStore.deleteBot,
-    onStartBot: handleSavedBotStart,
+    onRunBot: handleSavedBotRun,
     onStopBot: stopAutoTrading,
   };
 
@@ -601,8 +603,9 @@ export function DigitsView({
     canSave: savedBotStore.isLoaded && savedBotStore.canPersist,
     storageError: savedBotStore.storageError,
     disabled: !!editMode,
+    template: pendingStrategyTemplate,
+    onTemplateApplied: handleTemplateApplied,
     onSave: savedBotStore.saveBot,
-    onOpenSettings: () => setActiveDashboardPage('bot-builder'),
   };
 
   const dashboardOverview = !editMode ? (
@@ -814,11 +817,22 @@ export function DigitsView({
           onCreateBot={savedBotStore.saveBot}
         />
       )}
+      {isStrategySetupPage && (
+        <div className={cn(
+          'mx-auto w-full max-w-3xl px-3 py-5 pb-24 sm:px-6 sm:py-7',
+          appConfig && isMobile && 'flex-1 min-h-0 overflow-y-auto overscroll-contain'
+        )}>
+          <BotBuilder {...botBuilderProps} />
+        </div>
+      )}
 
       {appConfig ? (
         isMobile ? (
           /* No-code mobile layout: a single, reorderable column of blocks. */
-          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+          <div className={cn(
+            'flex-1 min-h-0 overflow-y-auto overscroll-contain',
+            isStrategySetupPage && 'hidden'
+          )}>
             {activeDashboardPage === 'home' && dashboardOverview}
             {!editMode && activeDashboardPage === 'strategies' && (
               <StrategiesLibrary
@@ -830,7 +844,8 @@ export function DigitsView({
             )}
             <div className={cn(
               'mx-auto flex w-full max-w-md flex-col gap-3 px-3 py-3 sm:px-4',
-              !editMode && (activeDashboardPage === 'home' || activeDashboardPage === 'strategies') && 'hidden'
+              !editMode && (activeDashboardPage === 'home' || activeDashboardPage === 'strategies') && 'hidden',
+              isStrategySetupPage && 'hidden'
             )}>
               {isLoading ? (
                 <Skeleton className="h-[420px] w-full rounded-xl" />
@@ -858,7 +873,6 @@ export function DigitsView({
                     </CardContent>
                   </Card>
                   <div className={cn('space-y-4', !isDashboardPageActive('bot-builder') && 'hidden')}>
-                    <BotBuilder {...botBuilderProps} />
                     <Card id="manual-trade-controls" className="factorpulse-panel border-border/80 bg-card/95">
                       <CardHeader className="flex-row items-center gap-2 border-b border-border/70 px-4 py-3">
                         <Activity className="h-4 w-4 text-primary" />
@@ -916,7 +930,8 @@ export function DigitsView({
              reordering lives in the builder's phone viewport. */
           <div className={cn(
             'mx-auto flex w-full max-w-[1600px] flex-col px-3 py-4 pb-24 sm:px-6',
-            !editMode && (activeDashboardPage === 'home' || activeDashboardPage === 'strategies') && 'hidden'
+            !editMode && (activeDashboardPage === 'home' || activeDashboardPage === 'strategies') && 'hidden',
+            isStrategySetupPage && 'hidden'
           )}>
             {isLoading ? (
               <div className={cn(
@@ -970,7 +985,6 @@ export function DigitsView({
                     !isDashboardPageActive('bot-builder') && 'hidden',
                     isDashboardPageActive('bot-builder') && 'lg:col-span-1 xl:col-span-1'
                   )}>
-                    <BotBuilder {...botBuilderProps} />
                     <Card id="manual-trade-controls" className="factorpulse-panel border-border/80 bg-card/95">
                       <CardHeader className="flex-row items-center gap-2 border-b border-border/70 px-4 py-3">
                         <Activity className="h-4 w-4 text-primary" />
@@ -1029,7 +1043,8 @@ export function DigitsView({
         /* Standard mobile layout (unchanged): trade type chips + main card. */
         <div className={cn(
           'flex w-full max-w-7xl mx-auto flex-col px-3 py-2 sm:px-4 sm:py-4 gap-2 sm:gap-3 pb-10',
-          !editMode && (activeDashboardPage === 'home' || activeDashboardPage === 'strategies') && 'hidden'
+          !editMode && (activeDashboardPage === 'home' || activeDashboardPage === 'strategies') && 'hidden',
+          isStrategySetupPage && 'hidden'
         )}>
           {isLoading ? (
             <>
@@ -1123,7 +1138,7 @@ export function DigitsView({
                       'py-4 sm:py-6',
                       !isDashboardPageActive('bot-builder') && 'hidden'
                     )}>
-                      <BotBuilder {...botBuilderProps} />
+                      {editMode && <BotBuilder {...botBuilderProps} />}
                       <Card id="manual-trade-controls" className="border-border/80">
                         <CardHeader className="flex-row items-center gap-2 border-b border-border/70 px-4 py-3">
                           <Activity className="h-4 w-4 text-primary" />
@@ -1166,7 +1181,8 @@ export function DigitsView({
            the two-column market/controls layout. */
         <div className={cn(
           'mx-auto flex w-full max-w-[1600px] flex-col px-3 py-4 pb-24 sm:px-6',
-          !editMode && (activeDashboardPage === 'home' || activeDashboardPage === 'strategies') && 'hidden'
+          !editMode && (activeDashboardPage === 'home' || activeDashboardPage === 'strategies') && 'hidden',
+          isStrategySetupPage && 'hidden'
         )}>
           {isLoading ? (
             <div className={cn(
@@ -1266,7 +1282,7 @@ export function DigitsView({
                 !isDashboardPageActive('bot-builder') && 'hidden',
                 !editMode && isDashboardPageActive('bot-builder') && 'lg:col-span-1 xl:col-span-1'
               )}>
-                <BotBuilder {...botBuilderProps} />
+                {editMode && <BotBuilder {...botBuilderProps} />}
                 <Card id="manual-trade-controls" className="factorpulse-panel border-border/80">
                   <CardHeader className="flex-row items-center gap-2 border-b border-border/70 px-4 py-3">
                     <Activity className="h-4 w-4 text-primary" />
@@ -1320,7 +1336,7 @@ export function DigitsView({
         </div>
       )}
 
-      {pinBuy && (editMode || activeDashboardPage === 'bot-builder') ? (
+      {pinBuy && editMode ? (
         <PinnedBuyBar
           editMode={editMode}
           rearrangeMode={rearrangeMode}

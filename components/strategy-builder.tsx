@@ -165,7 +165,9 @@ export function BotBuilder({
     if (!template) return;
     setName(template.name);
     setDescription(template.description);
-    setCompilation(null);
+    setCompilation(
+      template.description ? compileUserTradingStrategy(template.description) : null
+    );
     setSavedNotice(null);
     setSaveError(null);
     onTemplateApplied();
@@ -187,7 +189,7 @@ export function BotBuilder({
     setName('');
     setDescription('');
     setCompilation(null);
-    setSavedNotice(localize('Bot saved. You can start it from the Bots tab.'));
+    setSavedNotice(localize('Bot saved. You can run it from the Bots tab.'));
     setSaveError(null);
   };
 
@@ -198,7 +200,7 @@ export function BotBuilder({
         <div>
           <h3 className="text-sm font-bold text-foreground">{localize('Create a bot')}</h3>
           <p className="text-xs text-muted-foreground">
-            {localize('Saved bots stay in this browser and are available from the Bots tab.')}
+            {localize('The saved strategy is what the engine runs. Market and contract are selected automatically from its rules. Saved bots are available in the Bots tab.')}
           </p>
         </div>
       </div>
@@ -319,7 +321,7 @@ interface SavedBotsPanelProps {
   disabled?: boolean;
   onCreateBot: () => void;
   onDeleteBot: (id: string) => boolean;
-  onStartBot: (bot: SavedBot) => Promise<void>;
+  onRunBot: (bot: SavedBot) => Promise<void>;
   onStopBot: () => void;
 }
 
@@ -335,7 +337,7 @@ export function SavedBotsPanel({
   disabled = false,
   onCreateBot,
   onDeleteBot,
-  onStartBot,
+  onRunBot,
   onStopBot,
 }: SavedBotsPanelProps) {
   const { localize, locale } = useAppTranslations();
@@ -346,7 +348,7 @@ export function SavedBotsPanel({
         <div>
           <h3 className="text-sm font-bold text-foreground">{localize('Saved bots')}</h3>
           <p className="text-xs text-muted-foreground">
-            {localize('Create bots here, then start them from this list.')}
+            {localize('Run a saved bot to let the engine buy when its strategy conditions match.')}
           </p>
         </div>
         <Button type="button" size="sm" variant="outline" onClick={onCreateBot} disabled={disabled}>
@@ -362,17 +364,17 @@ export function SavedBotsPanel({
       )}
       {!isAuthenticated && (
         <p className="text-xs text-muted-foreground">
-          {localize('Log in to start a saved bot.')}
+          {localize('Log in to run a saved bot.')}
         </p>
       )}
       {isAuthenticated && !isConnected && (
         <p className="text-xs text-muted-foreground">
-          {localize('Connect to the market before starting a bot.')}
+          {localize('Connect to the market before running a bot.')}
         </p>
       )}
       {status !== 'idle' && !activeBotId && (
         <p role="status" className="text-xs text-muted-foreground">
-          {localize('A bot session is already active. Stop it before starting another.')}
+          {localize('A bot session is already active. Stop it before running another.')}
         </p>
       )}
 
@@ -431,14 +433,14 @@ export function SavedBotsPanel({
                       if (active) {
                         onStopBot();
                       } else {
-                        void onStartBot(bot);
+                        void onRunBot(bot);
                       }
                     }}
                   >
                     {active ? <Square /> : <Play />}
                     {active
                       ? localize(status === 'stopping' ? 'Stopping...' : 'Stop bot')
-                      : localize('Start bot')}
+                      : localize('Run bot')}
                   </Button>
                   <Button
                     type="button"

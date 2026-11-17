@@ -244,7 +244,7 @@ export function HomeDashboard({
             <p className="truncate text-[11px] text-muted-foreground">
               {isAuthenticated
                 ? localize('Your saved bots only trade when you start them.')
-                : localize('Log in to start bots; your saved strategies stay in this browser.')}
+                : localize('Log in to run bots; your saved strategies stay in this browser.')}
             </p>
           </div>
         </div>
@@ -396,7 +396,7 @@ export function HomeDashboard({
                 {localize('Your performance chart will appear after your first trade.')}
               </p>
               <p className="mt-1 text-[10px] text-muted-foreground">
-                {localize('Start a saved bot to begin tracking session results.')}
+                {localize('Run a saved bot to begin tracking session results.')}
               </p>
             </div>
           )}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { ActiveSymbol } from '@deriv/core';
 import { Bot, Plus, RotateCcw, Settings2, Trash2, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -11,6 +11,7 @@ import { getScannableMarkets } from '@/lib/market-scanner';
 import { compileUserTradingStrategy } from '@/lib/user-trading-strategy';
 import type { SavedBotSettings } from '@/lib/user-trading-strategy';
 import type { ContractMode } from '@/lib/types';
+import type { BotBuilderTemplate } from './strategy-builder';
 
 type ConditionKind = 'digit' | 'parity-run' | 'range-run' | 'sequence';
 type AnalysisType = 'pattern' | 'sequence';
@@ -38,8 +39,9 @@ interface QuickBotBuilderProps {
   canSave: boolean;
   storageError: string | null;
   disabled?: boolean;
+  template: BotBuilderTemplate | null;
+  onTemplateApplied: () => void;
   onSave: (name: string, description: string, settings: SavedBotSettings) => boolean;
-  onOpenSettings: () => void;
 }
 
 function createCondition(id: number, kind: ConditionKind = 'parity-run'): RuleCondition {
@@ -104,8 +106,9 @@ export function QuickBotBuilder({
   canSave,
   storageError,
   disabled = false,
+  template,
+  onTemplateApplied,
   onSave,
-  onOpenSettings,
 }: QuickBotBuilderProps) {
   const { localize } = useAppTranslations();
   const [name, setName] = useState('');
@@ -120,6 +123,59 @@ export function QuickBotBuilder({
   const [recoveryEnabled, setRecoveryEnabled] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedNotice, setSavedNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!template) return;
+
+    const result = compileUserTradingStrategy(template.description);
+    setName(template.name);
+    setMarketSymbol('');
+    setSaveError(null);
+    setSavedNotice(null);
+    if (!result.strategy) {
+      setSaveError(localize(result.error));
+      onTemplateApplied();
+      return;
+    }
+
+    const nextConditions = result.strategy.triggers.map((trigger, index): RuleCondition => {
+      const condition = createCondition(index + 1);
+      switch (trigger.kind) {
+        case 'digit':
+          return { ...condition, kind: 'digit', digit: trigger.digit };
+        case 'parity-run':
+          return {
+            ...condition,
+            kind: 'parity-run',
+            parity: trigger.parity,
+            length: trigger.length,
+          };
+        case 'range-run':
+          return {
+            ...condition,
+            kind: 'range-run',
+            range: trigger.range,
+            length: trigger.length,
+          };
+        case 'sequence':
+          return {
+            ...condition,
+            kind: 'sequence',
+            sequence: trigger.digits.join(', '),
+          };
+      }
+    });
+
+    setAnalysisType(nextConditions.every((condition) => condition.kind === 'sequence')
+      ? 'sequence'
+      : 'pattern');
+    setConditions(nextConditions);
+    setNextConditionId(nextConditions.length + 1);
+    setContractMode(result.strategy.contractMode);
+    setBarrier(result.strategy.barrier ?? 1);
+    setSavedNotice(localize('Strategy loaded from Strategies. Edit its conditions, then save the bot.'));
+    onTemplateApplied();
+  }, [localize, onTemplateApplied, template]);
 
   const scannableMarkets = useMemo(() => getScannableMarkets(symbols), [symbols]);
   const description = useMemo(() => {
@@ -186,7 +242,7 @@ export function QuickBotBuilder({
     }
     setName('');
     setSaveError(null);
-    setSavedNotice(localize('Quick bot saved. Start it from your saved bots below.'));
+    setSavedNotice(localize('Quick bot saved. Run it from your saved bots below.'));
   };
 
   return (
@@ -200,7 +256,7 @@ export function QuickBotBuilder({
           <div>
             <h3 className="text-sm font-bold text-foreground">{localize('Build your trading rules')}</h3>
             <p className="mt-1 text-xs text-muted-foreground">
-              {localize('Create and review a digit strategy. A bot only starts trading after you start it from the saved bots list.')}
+              {localize('Create and review a digit strategy. Run a saved bot to let the engine buy when its rules match.')}
             </p>
           </div>
         </div>
@@ -345,6 +401,7 @@ export function QuickBotBuilder({
                       <option value="digit">{localize('Last digit')}</option>
                       <option value="parity-run">{localize('Even / odd run')}</option>
                       <option value="range-run">{localize('High / low run')}</option>
+                      <option value="sequence">{localize('Digit sequence')}</option>
                     </select>
                   </div>
                 )}
@@ -542,11 +599,8 @@ export function QuickBotBuilder({
               />
             </div>
             <p className="text-[10px] leading-relaxed text-muted-foreground">
-              {localize('Profit/loss limits and recovery multiplier are shared settings. Change them in Bot Settings.')}
+              {localize('The engine applies profit/loss limits and the configured recovery multiplier automatically.')}
             </p>
-            <Button type="button" variant="outline" size="sm" className="w-full" onClick={onOpenSettings}>
-              {localize('Open Bot Settings')}
-            </Button>
           </section>
 
           <section className="space-y-3 rounded-lg border border-border/80 bg-card/70 p-3 sm:p-4">
@@ -567,7 +621,7 @@ export function QuickBotBuilder({
               <span>
                 <span className="font-medium">{localize('Use recovery multiplier')}</span>
                 <span className="mt-1 block text-[10px] leading-relaxed text-muted-foreground">
-                  {localize('When enabled, the bot uses the Martingale multiplier from Bot Settings after a loss. Recovery can increase losses.')}
+                  {localize('When enabled, the engine uses the configured recovery multiplier after a loss. Recovery can increase losses.')}
                 </span>
               </span>
             </label>
