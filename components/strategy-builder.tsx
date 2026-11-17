@@ -16,6 +16,11 @@ export interface SavedBot {
   createdAt: number;
 }
 
+export interface BotBuilderTemplate {
+  name: string;
+  description: string;
+}
+
 type AutoTradingStatus = 'idle' | 'scanning' | 'running' | 'stopping';
 
 function isSavedBot(value: unknown): value is SavedBot {
@@ -114,6 +119,8 @@ interface BotBuilderProps {
   canSave: boolean;
   disabled?: boolean;
   storageError: string | null;
+  template: BotBuilderTemplate | null;
+  onTemplateApplied: () => void;
   onSave: (name: string, description: string) => boolean;
 }
 
@@ -121,6 +128,8 @@ export function BotBuilder({
   canSave,
   disabled = false,
   storageError,
+  template,
+  onTemplateApplied,
   onSave,
 }: BotBuilderProps) {
   const { localize } = useAppTranslations();
@@ -129,6 +138,16 @@ export function BotBuilder({
   const [compilation, setCompilation] = useState<StrategyCompilation | null>(null);
   const [savedNotice, setSavedNotice] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!template) return;
+    setName(template.name);
+    setDescription(template.description);
+    setCompilation(null);
+    setSavedNotice(null);
+    setSaveError(null);
+    onTemplateApplied();
+  }, [template, onTemplateApplied]);
 
   const reviewStrategy = () => {
     setCompilation(compileUserTradingStrategy(description));

@@ -29,7 +29,6 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useIsMobile } from '@/hooks/use-is-mobile';
 import { useAppTranslations } from '@/components/custom/i18n-provider';
 import { formatAmount } from '@/lib/locale-format';
-import { getSymbolDisplayName } from '@/lib/active-symbols-display-names';
 import { cn } from '@/lib/utils';
 import { CurrentTickDisplay } from './current-tick-display';
 import { DigitStatsBar } from './digit-stats-bar';
@@ -40,6 +39,9 @@ import { ConfigurableDigitsControls, ConfigurableBuyButton } from './configurabl
 import { TradeTypeChips } from '@/components/custom/trade-type-chips';
 import { SymbolSelector } from '@/components/custom/symbol-selector';
 import { TransactionsPanel } from '@/components/custom/transactions-panel';
+import { HomeDashboard } from '@/components/custom/home-dashboard';
+import { StrategiesLibrary } from '@/components/custom/strategies-library';
+import type { StrategyTemplate } from '@/components/custom/strategies-library';
 import type {
   AuthState,
   DerivAccount,
@@ -58,7 +60,7 @@ import type {
 } from '@/hooks/use-digits-trading';
 import { compileUserTradingStrategy } from '@/lib/user-trading-strategy';
 import type { UserTradingStrategy } from '@/lib/user-trading-strategy';
-import type { SavedBot } from './strategy-builder';
+import type { BotBuilderTemplate, SavedBot } from './strategy-builder';
 import { useSessionTransactions } from '@/hooks/use-session-transactions';
 import { ALL_CONTROL_KEYS } from '../lib/app-config';
 import type { ControlKey, DigitsAppConfig } from '../lib/app-config';
@@ -479,6 +481,16 @@ export function DigitsView({
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [activeDashboardPage, setActiveDashboardPage] = useState<DashboardPage>('home');
   const [activeSavedBotId, setActiveSavedBotId] = useState<string | null>(null);
+  const [pendingStrategyTemplate, setPendingStrategyTemplate] = useState<BotBuilderTemplate | null>(null);
+  const handleTemplateApplied = useCallback(() => setPendingStrategyTemplate(null), []);
+  const handleUseStrategyTemplate = useCallback((template: StrategyTemplate) => {
+    setPendingStrategyTemplate(template);
+    setActiveDashboardPage('bot-builder');
+  }, []);
+  const handleCreateCustomStrategy = useCallback(() => {
+    setPendingStrategyTemplate({ name: '', description: '' });
+    setActiveDashboardPage('bot-builder');
+  }, []);
   const isDashboardPageActive = (page: DashboardPage) =>
     editMode || activeDashboardPage === page;
   const savedBotStore = useSavedBots();
@@ -534,6 +546,8 @@ export function DigitsView({
     canSave: savedBotStore.isLoaded && savedBotStore.canPersist,
     disabled: !!editMode,
     storageError: savedBotStore.storageError,
+    template: pendingStrategyTemplate,
+    onTemplateApplied: handleTemplateApplied,
     onSave: savedBotStore.saveBot,
   };
   const savedBotsPanelProps = {
@@ -571,137 +585,19 @@ export function DigitsView({
   };
 
   const dashboardOverview = !editMode ? (
-    <section
-      id="dashboard-overview"
-      className="mx-auto w-full max-w-[1600px] px-3 pt-2 sm:px-6 sm:pt-6"
-    >
-      <div className="flex min-w-0 items-center justify-between gap-2 lg:items-end">
-        <div className="flex min-w-0 items-baseline gap-1.5 lg:block">
-          <h2 className="shrink-0 text-lg font-bold tracking-tight text-foreground sm:text-xl">
-            <Localize i18n_default_text="Dashboard" />
-          </h2>
-          <p className="min-w-0 truncate text-xs leading-tight text-muted-foreground sm:text-sm lg:mt-1">
-            {activeAccount ? (
-              <>
-                <span className="lg:hidden">
-                  {activeAccount.account_type === 'demo' ? (
-                    <Localize i18n_default_text="Demo" />
-                  ) : (
-                    <Localize i18n_default_text="Real" />
-                  )}
-                  {' · '}
-                  {activeAccount.currency}
-                </span>
-                <span className="hidden lg:inline">
-                  {activeAccount.account_type === 'demo' ? (
-                    <Localize i18n_default_text="Demo account" />
-                  ) : (
-                    <Localize i18n_default_text="Real account" />
-                  )}
-                  {' · '}
-                  {activeAccount.currency}
-                </span>
-              </>
-            ) : (
-              <>
-                <span className="lg:hidden">
-                  <Localize i18n_default_text="Market overview" />
-                </span>
-                <span className="hidden lg:inline">
-                  <Localize i18n_default_text="Market overview and trade activity" />
-                </span>
-              </>
-            )}
-          </p>
-        </div>
-        <div
-          className={cn(
-            'inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-1 text-[11px] font-medium sm:gap-2 sm:text-xs lg:px-3 lg:py-1.5',
-            isConnected
-              ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500'
-              : 'border-amber-500/30 bg-amber-500/10 text-amber-500'
-          )}
-        >
-          <span className={cn('h-2 w-2 rounded-full', isConnected ? 'bg-emerald-500' : 'bg-amber-500')} />
-          <span className="lg:hidden">
-            {isConnected ? (
-              <Localize i18n_default_text="Live" />
-            ) : (
-              <Localize i18n_default_text="Waiting" />
-            )}
-          </span>
-          <span className="hidden lg:inline">
-            {isConnected ? (
-              <Localize i18n_default_text="Live market stream connected" />
-            ) : (
-              <Localize i18n_default_text="Waiting for live market stream" />
-            )}
-          </span>
-        </div>
-      </div>
-
-      <div className="mt-4 grid grid-cols-2 gap-3 xl:grid-cols-4">
-        <div className="rounded-xl border border-border bg-card/90 p-3 sm:p-4">
-          <div className="flex items-center justify-between text-muted-foreground">
-            <p className="text-xs font-medium"><Localize i18n_default_text="Market" /></p>
-            <BarChart3 className="h-4 w-4 text-primary" />
-          </div>
-          <p className="mt-3 truncate text-base font-semibold text-foreground sm:text-lg">
-            {activeSymbol
-              ? getSymbolDisplayName(activeSymbol.underlying_symbol)
-              : localize('Loading market')}
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            <Localize i18n_default_text="Selected market" />
-          </p>
-        </div>
-
-        <div className="rounded-xl border border-border bg-card/90 p-3 sm:p-4">
-          <div className="flex items-center justify-between text-muted-foreground">
-            <p className="text-xs font-medium"><Localize i18n_default_text="Last digit" /></p>
-            <Activity className="h-4 w-4 text-primary" />
-          </div>
-          <p className="mt-3 text-2xl font-bold tabular-nums text-foreground sm:text-3xl">
-            {lastDigit ?? '—'}
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            <Localize i18n_default_text="Latest market tick" />
-          </p>
-        </div>
-
-        <div className="rounded-xl border border-border bg-card/90 p-3 sm:p-4">
-          <div className="flex items-center justify-between text-muted-foreground">
-            <p className="text-xs font-medium"><Localize i18n_default_text="Ticks analyzed" /></p>
-            <Radio className="h-4 w-4 text-primary" />
-          </div>
-          <p className="mt-3 text-2xl font-bold tabular-nums text-foreground sm:text-3xl">
-            {digitStats.totalTicks.toLocaleString(locale)}
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            <Localize i18n_default_text="Current sample" />
-          </p>
-        </div>
-
-        <div className="rounded-xl border border-border bg-card/90 p-3 sm:p-4">
-          <div className="flex items-center justify-between text-muted-foreground">
-            <p className="text-xs font-medium"><Localize i18n_default_text="Auto strategy" /></p>
-            <Zap className="h-4 w-4 text-primary" />
-          </div>
-          <p className="mt-3 truncate text-base font-semibold text-foreground sm:text-lg">
-            {autoTradingStatus === 'running'
-              ? localize('Running')
-              : autoTradingStatus === 'scanning'
-                ? localize('Scanning')
-                : autoTradingStatus === 'stopping'
-                  ? localize('Stopping')
-                  : localize('Ready')}
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {localize('{{count}} trades this session', { count: autoTradingTradeCount })}
-          </p>
-        </div>
-      </div>
-    </section>
+    <HomeDashboard
+      authState={authState}
+      activeAccount={activeAccount}
+      activeSymbol={activeSymbol}
+      lastDigit={lastDigit}
+      transactions={transactions}
+      savedBots={savedBotStore.bots}
+      autoTradingStatus={autoTradingStatus}
+      activeBotId={activeSavedBotId}
+      isConnected={isConnected}
+      onViewBots={() => setActiveDashboardPage('bots')}
+      onViewBotBuilder={() => setActiveDashboardPage('bot-builder')}
+    />
   ) : null;
 
   // Purchase feedback for the configurable layouts lives HERE, not in
@@ -831,6 +727,28 @@ export function DigitsView({
       />
     ) : null;
 
+  const renderTradeControls = (mobile: boolean) => (
+    <TradeControls
+      contractMode={contractMode}
+      selectedDigit={selectedDigit}
+      isConnected={isConnected}
+      stake={stake}
+      onStakeChange={setStake}
+      duration={duration}
+      onDurationChange={setDuration}
+      durationLimits={durationLimits}
+      proposal={proposal}
+      isProposalLoading={isProposalLoading}
+      onBuy={handleBuy}
+      isBuying={isBuying}
+      autoTradingStatus={autoTradingStatus}
+      buyResult={buyResult}
+      buyError={buyError}
+      onClearBuyResult={clearBuyResult}
+      isMobile={mobile}
+    />
+  );
+
   return (
     <main
       data-dashboard-page={activeDashboardPage}
@@ -868,15 +786,27 @@ export function DigitsView({
       )}
 
       {activeDashboardPage === 'home' && (!isMobile || !appConfig) && dashboardOverview}
+      {!editMode && activeDashboardPage === 'strategies' && !(appConfig && isMobile) && (
+        <StrategiesLibrary
+          onUseTemplate={handleUseStrategyTemplate}
+          onCreateCustom={handleCreateCustomStrategy}
+        />
+      )}
 
       {appConfig ? (
         isMobile ? (
           /* No-code mobile layout: a single, reorderable column of blocks. */
           <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
             {activeDashboardPage === 'home' && dashboardOverview}
+            {!editMode && activeDashboardPage === 'strategies' && (
+              <StrategiesLibrary
+                onUseTemplate={handleUseStrategyTemplate}
+                onCreateCustom={handleCreateCustomStrategy}
+              />
+            )}
             <div className={cn(
               'mx-auto flex w-full max-w-md flex-col gap-3 px-3 py-3 sm:px-4',
-              !editMode && activeDashboardPage === 'home' && 'hidden'
+              !editMode && (activeDashboardPage === 'home' || activeDashboardPage === 'strategies') && 'hidden'
             )}>
               {isLoading ? (
                 <Skeleton className="h-[420px] w-full rounded-xl" />
@@ -890,13 +820,13 @@ export function DigitsView({
                     id="market-column"
                     className={cn(
                       'factorpulse-panel overflow-hidden border-primary/45 bg-card/95',
-                      !isDashboardPageActive('strategies') && 'hidden'
+                      !isDashboardPageActive('bot-builder') && 'hidden'
                     )}
                   >
                     <CardHeader className="flex-row items-center gap-2 border-b border-border/70 px-4 py-3">
                       <Activity className="h-4 w-4 text-primary" />
                       <CardTitle className="text-sm font-bold uppercase tracking-[0.12em]">
-                        <Localize i18n_default_text="Cycle Inspector" />
+                        <Localize i18n_default_text="Market setup" />
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="p-4">
@@ -905,6 +835,17 @@ export function DigitsView({
                   </Card>
                   <div className={cn('space-y-4', !isDashboardPageActive('bot-builder') && 'hidden')}>
                     <BotBuilder {...botBuilderProps} />
+                    <Card id="manual-trade-controls" className="factorpulse-panel border-border/80 bg-card/95">
+                      <CardHeader className="flex-row items-center gap-2 border-b border-border/70 px-4 py-3">
+                        <Activity className="h-4 w-4 text-primary" />
+                        <CardTitle className="text-sm font-bold uppercase tracking-[0.12em]">
+                          <Localize i18n_default_text="Trade controls" />
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="p-4">
+                        {renderConfigurable(CONTROLS_COLUMN_KEYS)}
+                      </CardContent>
+                    </Card>
                     <TransactionsPanel
                       transactions={transactions}
                       onReset={resetTransactions}
@@ -921,11 +862,10 @@ export function DigitsView({
                     <CardHeader className="flex-row items-center gap-2 border-b border-border/70 px-4 py-3">
                       <Zap className="h-4 w-4 text-primary" />
                       <CardTitle className="text-sm font-bold uppercase tracking-[0.12em]">
-                        <Localize i18n_default_text="Trade Terminal" />
+                        <Localize i18n_default_text="Bot management" />
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="p-4">
-                      {renderConfigurable(CONTROLS_COLUMN_KEYS)}
                       <SavedBotsPanel {...savedBotsPanelProps} />
                       <RiskManagementControls {...riskManagementProps} />
                     </CardContent>
@@ -949,7 +889,10 @@ export function DigitsView({
              Edit mode shares the two-column version of this layout, so the
              builder's desktop viewport shows the editable controls. Full
              reordering lives in the builder's phone viewport. */
-          <div className="mx-auto flex w-full max-w-[1600px] flex-col px-3 py-4 pb-24 sm:px-6">
+          <div className={cn(
+            'mx-auto flex w-full max-w-[1600px] flex-col px-3 py-4 pb-24 sm:px-6',
+            !editMode && (activeDashboardPage === 'home' || activeDashboardPage === 'strategies') && 'hidden'
+          )}>
             {isLoading ? (
               <div className={cn(
                 'grid grid-cols-1 gap-4 xl:gap-5',
@@ -977,7 +920,7 @@ export function DigitsView({
                   id="market-column"
                   className={cn(
                     'factorpulse-panel order-1 overflow-hidden border-primary/45 bg-card/95',
-                    !isDashboardPageActive('strategies') && 'hidden'
+                    !isDashboardPageActive('bot-builder') && 'hidden'
                   )}
                   data-testid="market-column"
                 >
@@ -985,7 +928,7 @@ export function DigitsView({
                     <div className="flex items-center gap-2">
                       <Activity className="h-4 w-4 text-primary" />
                       <CardTitle className="text-sm font-bold uppercase tracking-[0.12em] sm:text-base">
-                        <Localize i18n_default_text="Cycle Inspector" />
+                        <Localize i18n_default_text="Market setup" />
                       </CardTitle>
                     </div>
                     <span className="rounded-md border border-primary/35 bg-primary/10 px-2 py-1 text-[9px] font-bold uppercase tracking-widest text-primary">
@@ -1003,6 +946,17 @@ export function DigitsView({
                     isDashboardPageActive('bot-builder') && 'lg:col-span-1 xl:col-span-1'
                   )}>
                     <BotBuilder {...botBuilderProps} />
+                    <Card id="manual-trade-controls" className="factorpulse-panel border-border/80 bg-card/95">
+                      <CardHeader className="flex-row items-center gap-2 border-b border-border/70 px-4 py-3">
+                        <Activity className="h-4 w-4 text-primary" />
+                        <CardTitle className="text-sm font-bold uppercase tracking-[0.12em]">
+                          <Localize i18n_default_text="Trade controls" />
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="p-4 sm:p-5">
+                        {renderConfigurable(CONTROLS_COLUMN_KEYS)}
+                      </CardContent>
+                    </Card>
                     <TransactionsPanel
                       transactions={transactions}
                       onReset={resetTransactions}
@@ -1023,7 +977,7 @@ export function DigitsView({
                     <div className="flex items-center gap-2">
                       <Zap className="h-4 w-4 text-primary" />
                       <CardTitle className="text-sm font-bold uppercase tracking-[0.12em] sm:text-base">
-                        <Localize i18n_default_text="Trade Terminal" />
+                        <Localize i18n_default_text="Bot management" />
                       </CardTitle>
                     </div>
                     <span className={`rounded-md border px-2 py-1 text-[9px] font-bold uppercase tracking-widest ${isConnected ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400' : 'border-amber-500/40 bg-amber-500/10 text-amber-300'}`}>
@@ -1035,48 +989,11 @@ export function DigitsView({
                     </span>
                   </CardHeader>
                   <CardContent className="p-4 sm:p-5">
-                    {renderConfigurable(CONTROLS_COLUMN_KEYS)}
+                    {editMode && renderConfigurable(CONTROLS_COLUMN_KEYS)}
                     <SavedBotsPanel {...savedBotsPanelProps} />
                     <RiskManagementControls {...riskManagementProps} />
                   </CardContent>
                 </Card>
-              </div>
-              <div className={cn(
-                'mt-4 hidden grid-cols-2 gap-3 lg:grid',
-                !isDashboardPageActive('home') && 'lg:hidden'
-              )}>
-                <div className="flex items-center justify-between rounded-lg border border-border/80 bg-card/70 px-4 py-3">
-                  <div className="flex items-center gap-3">
-                    <Radio className={`h-4 w-4 ${isConnected ? 'text-emerald-400' : 'text-amber-300'}`} />
-                    <div>
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-                        <Localize i18n_default_text="Connection status" />
-                      </p>
-                      <p className="mt-0.5 text-xs font-medium">
-                        {isConnected ? (
-                          <Localize i18n_default_text="Live market stream connected" />
-                        ) : (
-                          <Localize i18n_default_text="Waiting for live market stream" />
-                        )}
-                      </p>
-                    </div>
-                  </div>
-                  <span className={`h-2 w-2 rounded-full ${isConnected ? 'animate-pulse bg-emerald-400' : 'bg-amber-400'}`} />
-                </div>
-                <div className="flex items-center justify-between rounded-lg border border-border/80 bg-card/70 px-4 py-3">
-                  <div className="flex items-center gap-3">
-                    <BarChart3 className="h-4 w-4 text-primary" />
-                    <div>
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-                        <Localize i18n_default_text="Digit sample" />
-                      </p>
-                      <p className="mt-0.5 text-xs font-medium">
-                        {digitStats.totalTicks} <Localize i18n_default_text="ticks analyzed" />
-                      </p>
-                    </div>
-                  </div>
-                  <ArrowUpRight className="h-4 w-4 text-primary" />
-                </div>
               </div>
               </>
             )}
@@ -1086,7 +1003,7 @@ export function DigitsView({
         /* Standard mobile layout (unchanged): trade type chips + main card. */
         <div className={cn(
           'flex w-full max-w-7xl mx-auto flex-col px-3 py-2 sm:px-4 sm:py-4 gap-2 sm:gap-3 pb-10',
-          !editMode && activeDashboardPage === 'home' && 'hidden'
+          !editMode && (activeDashboardPage === 'home' || activeDashboardPage === 'strategies') && 'hidden'
         )}>
           {isLoading ? (
             <>
@@ -1107,7 +1024,7 @@ export function DigitsView({
                     id="market-column"
                     className={cn(
                       'space-y-3 pb-4',
-                      !isDashboardPageActive('strategies') && 'hidden'
+                      !isDashboardPageActive('bot-builder') && 'hidden'
                     )}
                   >
                     <TradeTypeChips
@@ -1127,7 +1044,7 @@ export function DigitsView({
                   {/* Symbol selector; price appears beside the prediction heading except in Even/Odd mode. */}
                   <div className={cn(
                     'flex flex-col pb-4 pt-1 sm:pb-6 sm:pt-2',
-                    !isDashboardPageActive('strategies') && 'hidden'
+                    !isDashboardPageActive('bot-builder') && 'hidden'
                   )}>
                     <SymbolSelector
                       symbols={symbols}
@@ -1150,13 +1067,13 @@ export function DigitsView({
 
                   <div className={cn(
                     'border-t divide-y divide-border',
-                    !isDashboardPageActive('strategies') && 'border-t-0 divide-y-0'
+                    !isDashboardPageActive('bot-builder') && 'border-t-0 divide-y-0'
                   )}>
                     {/* Digit stats — hidden for Even/Odd */}
                     {tradeType !== 'even-odd' && (
                       <div className={cn(
                         'space-y-4 py-4 sm:py-6',
-                        !isDashboardPageActive('strategies') && 'hidden'
+                        !isDashboardPageActive('bot-builder') && 'hidden'
                       )}>
                         <DigitStatsBar
                           digitStats={digitStats}
@@ -1181,6 +1098,17 @@ export function DigitsView({
                       !isDashboardPageActive('bot-builder') && 'hidden'
                     )}>
                       <BotBuilder {...botBuilderProps} />
+                      <Card id="manual-trade-controls" className="border-border/80">
+                        <CardHeader className="flex-row items-center gap-2 border-b border-border/70 px-4 py-3">
+                          <Activity className="h-4 w-4 text-primary" />
+                          <CardTitle className="text-sm font-bold uppercase tracking-[0.12em]">
+                            <Localize i18n_default_text="Trade controls" />
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent className="p-4">
+                          {renderTradeControls(true)}
+                        </CardContent>
+                      </Card>
                       <TransactionsPanel
                         transactions={transactions}
                         onReset={resetTransactions}
@@ -1196,25 +1124,6 @@ export function DigitsView({
                         !isDashboardPageActive('bots') && 'hidden'
                       )}
                     >
-                      <TradeControls
-                        contractMode={contractMode}
-                        selectedDigit={selectedDigit}
-                        isConnected={isConnected}
-                        stake={stake}
-                        onStakeChange={setStake}
-                        duration={duration}
-                        onDurationChange={setDuration}
-                        durationLimits={durationLimits}
-                        proposal={proposal}
-                        isProposalLoading={isProposalLoading}
-                        onBuy={handleBuy}
-                        isBuying={isBuying}
-                        autoTradingStatus={autoTradingStatus}
-                        buyResult={buyResult}
-                        buyError={buyError}
-                        onClearBuyResult={clearBuyResult}
-                        isMobile
-                      />
                       <SavedBotsPanel {...savedBotsPanelProps} />
                       <RiskManagementControls {...riskManagementProps} />
                     </div>
@@ -1230,7 +1139,7 @@ export function DigitsView({
            the two-column market/controls layout. */
         <div className={cn(
           'mx-auto flex w-full max-w-[1600px] flex-col px-3 py-4 pb-24 sm:px-6',
-          !editMode && activeDashboardPage === 'home' && 'hidden'
+          !editMode && (activeDashboardPage === 'home' || activeDashboardPage === 'strategies') && 'hidden'
         )}>
           {isLoading ? (
             <div className={cn(
@@ -1258,7 +1167,7 @@ export function DigitsView({
                 id="market-column"
                 className={cn(
                   'factorpulse-panel order-1 overflow-hidden border-primary/45 bg-card/95',
-                  !isDashboardPageActive('strategies') && 'hidden'
+                  !isDashboardPageActive('bot-builder') && 'hidden'
                 )}
                 data-testid="market-column"
               >
@@ -1266,7 +1175,7 @@ export function DigitsView({
                   <div className="flex items-center gap-2">
                     <Activity className="h-4 w-4 text-primary" />
                     <CardTitle className="text-sm font-bold uppercase tracking-[0.12em] sm:text-base">
-                      <Localize i18n_default_text="Cycle Inspector" />
+                      <Localize i18n_default_text="Market setup" />
                     </CardTitle>
                   </div>
                   <span className="rounded-md border border-primary/35 bg-primary/10 px-2 py-1 text-[9px] font-bold uppercase tracking-widest text-primary">
@@ -1331,6 +1240,17 @@ export function DigitsView({
                 !editMode && isDashboardPageActive('bot-builder') && 'lg:col-span-1 xl:col-span-1'
               )}>
                 <BotBuilder {...botBuilderProps} />
+                <Card id="manual-trade-controls" className="factorpulse-panel border-border/80">
+                  <CardHeader className="flex-row items-center gap-2 border-b border-border/70 px-4 py-3">
+                    <Activity className="h-4 w-4 text-primary" />
+                    <CardTitle className="text-sm font-bold uppercase tracking-[0.12em]">
+                      <Localize i18n_default_text="Trade controls" />
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-4 sm:p-5">
+                    {renderTradeControls(false)}
+                  </CardContent>
+                </Card>
                 <TransactionsPanel
                   transactions={transactions}
                   onReset={resetTransactions}
@@ -1350,7 +1270,7 @@ export function DigitsView({
                   <div className="flex items-center gap-2">
                     <Zap className="h-4 w-4 text-primary" />
                     <CardTitle className="text-sm font-bold uppercase tracking-[0.12em] sm:text-base">
-                      <Localize i18n_default_text="Trade Terminal" />
+                      <Localize i18n_default_text="Bot management" />
                     </CardTitle>
                   </div>
                   <span className={`rounded-md border px-2 py-1 text-[9px] font-bold uppercase tracking-widest ${isConnected ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400' : 'border-amber-500/40 bg-amber-500/10 text-amber-300'}`}>
@@ -1363,24 +1283,7 @@ export function DigitsView({
                 </CardHeader>
                 <CardContent className="flex flex-col gap-4 p-4 sm:p-5">
                   <SavedBotsPanel {...savedBotsPanelProps} />
-                  <TradeControls
-                    contractMode={contractMode}
-                    selectedDigit={selectedDigit}
-                    isConnected={isConnected}
-                    stake={stake}
-                    onStakeChange={setStake}
-                    duration={duration}
-                    onDurationChange={setDuration}
-                    durationLimits={durationLimits}
-                    proposal={proposal}
-                    isProposalLoading={isProposalLoading}
-                    onBuy={handleBuy}
-                    isBuying={isBuying}
-                    autoTradingStatus={autoTradingStatus}
-                    buyResult={buyResult}
-                    buyError={buyError}
-                    onClearBuyResult={clearBuyResult}
-                  />
+                  {editMode && renderTradeControls(false)}
                   <RiskManagementControls {...riskManagementProps} />
                 </CardContent>
               </Card>
@@ -1389,7 +1292,7 @@ export function DigitsView({
         </div>
       )}
 
-      {pinBuy ? (
+      {pinBuy && (editMode || activeDashboardPage === 'bot-builder') ? (
         <PinnedBuyBar
           editMode={editMode}
           rearrangeMode={rearrangeMode}
