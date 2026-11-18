@@ -11,6 +11,7 @@ import {
   Plus,
   Radar,
   Radio,
+  RotateCcw,
   TrendingUp,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -43,6 +44,7 @@ interface HomeDashboardProps {
   autoTradingTradeCount: number;
   activeBotId: string | null;
   isConnected: boolean;
+  onResetSession: () => void;
   onViewBots: () => void;
   onStopAutoTrading: () => void;
 }
@@ -98,6 +100,7 @@ export function HomeDashboard({
   autoTradingTradeCount,
   activeBotId,
   isConnected,
+  onResetSession,
   onViewBots,
   onStopAutoTrading,
 }: HomeDashboardProps) {
@@ -116,7 +119,10 @@ export function HomeDashboard({
 
     return {
       closedTradeCount: closedTrades.length,
+      lossTrades: closedTrades.filter((trade) => trade.profit < 0).length,
+      profitTrades: winningTrades,
       sessionProfit,
+      totalTrades: transactions.length,
       tradesToday,
       winRate: closedTrades.length > 0 ? (winningTrades / closedTrades.length) * 100 : null,
     };
@@ -345,16 +351,58 @@ export function HomeDashboard({
               <h3 className="text-sm font-bold text-foreground">{localize('Recent trades')}</h3>
               <p className="text-[11px] text-muted-foreground">{localize('Latest account activity')}</p>
             </div>
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              className="h-8 shrink-0 px-2 text-[11px]"
-              onClick={onViewBots}
-            >
-              {localize('All trades')}
-              <ArrowUpRight />
-            </Button>
+            <div className="flex shrink-0 items-center gap-1">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-8 px-2 text-[11px]"
+                aria-label={localize('Reset trade history and session TP/SL progress')}
+                title={localize('Reset trade history and session TP/SL progress')}
+                onClick={onResetSession}
+                disabled={!isAuthenticated}
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                {localize('Reset')}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-8 shrink-0 px-2 text-[11px]"
+                onClick={onViewBots}
+              >
+                {localize('All trades')}
+                <ArrowUpRight />
+              </Button>
+            </div>
+          </div>
+
+          <div className="mt-3 grid grid-cols-3 gap-2 border-y border-border/60 py-2">
+            <div>
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                {localize('Total trades')}
+              </p>
+              <p className="text-sm font-bold tabular-nums text-foreground">
+                {formatInteger(metrics.totalTrades, locale)}
+              </p>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                {localize('Profit trades')}
+              </p>
+              <p className="text-sm font-bold tabular-nums text-emerald-500">
+                {formatInteger(metrics.profitTrades, locale)}
+              </p>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                {localize('Losses')}
+              </p>
+              <p className="text-sm font-bold tabular-nums text-destructive">
+                {formatInteger(metrics.lossTrades, locale)}
+              </p>
+            </div>
           </div>
 
           {recentTrades.length > 0 ? (

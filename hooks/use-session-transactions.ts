@@ -111,6 +111,7 @@ export function useSessionTransactions(
   }, [openPositions, symbols, currentPipSize]);
 
   const resetTransactions = useCallback(() => {
+    sessionStartedAt.current = Math.floor(Date.now() / 1000);
     for (const transaction of transactions) {
       ignoredContractIds.current.add(transaction.contractId);
     }

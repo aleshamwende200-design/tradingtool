@@ -410,6 +410,7 @@ interface UseDigitsTradingReturn {
   setMartingaleValue: (mode: MartingaleMode, value: string) => void;
   thresholdResult: AutoTradingThresholdResult | null;
   clearThresholdResult: () => void;
+  resetAutoTradingSession: () => void;
   autoTradingStatus: AutoTradingStatus;
   autoTradingTradeCount: number;
   autoTradingProfit: number;
@@ -473,6 +474,7 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
     prices: number[];
   } | null>(null);
   const autoSessionRef = useRef<{ stopRequested: boolean } | null>(null);
+  const autoSessionStatsRef = useRef({ profit: 0, tradeCount: 0, generation: 0 });
   const selectSymbolRef = useRef(selectSymbol);
   const activeSymbolRef = useRef(activeSymbol);
   const activeTickListenersRef = useRef(new Map<string, Set<(tick: Tick) => void>>());
@@ -524,6 +526,17 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
   }, []);
 
   const clearThresholdResult = useCallback(() => {
+    setThresholdResult(null);
+  }, []);
+
+  const resetAutoTradingSession = useCallback(() => {
+    autoSessionStatsRef.current = {
+      profit: 0,
+      tradeCount: 0,
+      generation: autoSessionStatsRef.current.generation + 1,
+    };
+    setAutoTradingTradeCount(0);
+    setAutoTradingProfit(0);
     setThresholdResult(null);
   }, []);
 
@@ -709,8 +722,11 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
     setAutoTradingEstimatedWinRate(null);
     setAutoTradingScanProgress(null);
 
-    let sessionProfit = 0;
-    let tradeCount = 0;
+    autoSessionStatsRef.current = {
+      profit: 0,
+      tradeCount: 0,
+      generation: autoSessionStatsRef.current.generation + 1,
+    };
     let nextStake = baseStake;
     let martingaleProgress = { ...initialMartingaleProgress };
     let stopReason = '';
@@ -969,11 +985,16 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
         clearBuyResult();
         setAutoTradingScanProgress(null);
 
-        tradeCount += 1;
-        setAutoTradingTradeCount(tradeCount);
+        const tradeGeneration = autoSessionStatsRef.current.generation;
+        autoSessionStatsRef.current.tradeCount += 1;
+        setAutoTradingTradeCount(autoSessionStatsRef.current.tradeCount);
         const settledProfit = await waitForContractSettlement(tradingWs, purchase.contractId);
-        sessionProfit = Math.round((sessionProfit + settledProfit) * 100) / 100;
-        setAutoTradingProfit(sessionProfit);
+        if (tradeGeneration === autoSessionStatsRef.current.generation) {
+          autoSessionStatsRef.current.profit =
+            Math.round((autoSessionStatsRef.current.profit + settledProfit) * 100) / 100;
+          setAutoTradingProfit(autoSessionStatsRef.current.profit);
+        }
+        const sessionProfit = autoSessionStatsRef.current.profit;
 
         if (takeProfitTarget !== null && sessionProfit >= takeProfitTarget) {
           stopReason = localize('Take-profit target reached.');
@@ -1018,15 +1039,15 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
 
       if (session.stopRequested) {
         stopReason = localize('Auto-trading stopped after the current contract settled.');
-      } else if (!stopReason && tradeCount === 0) {
+      } else if (!stopReason && autoSessionStatsRef.current.tradeCount === 0) {
         stopReason = localize('Auto-trading stopped before the first trade.');
       }
       if (!reachedThreshold) {
         toast.success(localize('Trading session ended'), {
           description: localize('{{reason}} Final session P/L: {{profit}} USD across {{count}} trades.', {
             reason: stopReason,
-            profit: sessionProfit.toFixed(2),
-            count: tradeCount,
+            profit: autoSessionStatsRef.current.profit.toFixed(2),
+            count: autoSessionStatsRef.current.tradeCount,
           }),
         });
       }
@@ -1104,6 +1125,7 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
     setMartingaleValue,
     thresholdResult,
     clearThresholdResult,
+    resetAutoTradingSession,
     autoTradingStatus,
     autoTradingTradeCount,
     autoTradingProfit,

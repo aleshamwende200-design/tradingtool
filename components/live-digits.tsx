@@ -102,6 +102,7 @@ export function LiveDigits({
       autoTradingScanProgress={trading.autoTradingScanProgress}
       thresholdResult={trading.thresholdResult}
       clearThresholdResult={trading.clearThresholdResult}
+      resetAutoTradingSession={trading.resetAutoTradingSession}
       stopAutoTrading={trading.stopAutoTrading}
       appConfig={appConfig}
       editMode={editMode}

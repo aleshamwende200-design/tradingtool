@@ -366,6 +366,7 @@ export interface DigitsViewProps {
   autoTradingScanProgress: AutoTradingScanProgress | null;
   thresholdResult: AutoTradingThresholdResult | null;
   clearThresholdResult: () => void;
+  resetAutoTradingSession: () => void;
   stopAutoTrading: () => void;
   // Branding (used by preview route; no-op in the real app)
   logoSrc?: string;
@@ -442,6 +443,7 @@ export function DigitsView({
   autoTradingScanProgress,
   thresholdResult,
   clearThresholdResult,
+  resetAutoTradingSession,
   stopAutoTrading,
   logoSrc,
   appName,
@@ -497,6 +499,10 @@ export function DigitsView({
     activeAccount?.account_id ?? null,
     pipSize
   );
+  const resetSessionHistory = useCallback(() => {
+    resetTransactions();
+    resetAutoTradingSession();
+  }, [resetAutoTradingSession, resetTransactions]);
 
   // Logged-out Buy opens the login/sign-up prompt instead of sending a buy that
   // would fail with a "Purchase Failed" toast. One gate covers every Buy
@@ -624,6 +630,7 @@ export function DigitsView({
       autoTradingTradeCount={autoTradingTradeCount}
       activeBotId={activeSavedBotId}
       isConnected={isConnected}
+      onResetSession={resetSessionHistory}
       onViewBots={() => setActiveDashboardPage('bots')}
       onStopAutoTrading={stopAutoTrading}
     />
@@ -893,7 +900,7 @@ export function DigitsView({
                     <RiskManagementControls {...riskManagementProps} />
                     <TransactionsPanel
                       transactions={transactions}
-                      onReset={resetTransactions}
+                      onReset={resetSessionHistory}
                       isAuthenticated={authState === 'authenticated'}
                     />
                   </div>
@@ -1005,7 +1012,7 @@ export function DigitsView({
                     <RiskManagementControls {...riskManagementProps} />
                     <TransactionsPanel
                       transactions={transactions}
-                      onReset={resetTransactions}
+                      onReset={resetSessionHistory}
                       isAuthenticated={authState === 'authenticated'}
                     />
                   </div>
@@ -1159,7 +1166,7 @@ export function DigitsView({
                       <RiskManagementControls {...riskManagementProps} />
                       <TransactionsPanel
                         transactions={transactions}
-                        onReset={resetTransactions}
+                        onReset={resetSessionHistory}
                         isAuthenticated={authState === 'authenticated'}
                       />
                     </div>
@@ -1303,7 +1310,7 @@ export function DigitsView({
                 <RiskManagementControls {...riskManagementProps} />
                 <TransactionsPanel
                   transactions={transactions}
-                  onReset={resetTransactions}
+                  onReset={resetSessionHistory}
                   isAuthenticated={authState === 'authenticated'}
                 />
               </div>
