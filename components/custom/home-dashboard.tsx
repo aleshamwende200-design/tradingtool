@@ -1,13 +1,16 @@
 'use client';
 
-import { useMemo, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { ActiveSymbol, AuthState, DerivAccount } from '@deriv/core';
 import {
   Activity,
   ArrowDownRight,
   ArrowUpRight,
   Bot,
+  ChevronDown,
+  ChevronUp,
   Clock3,
+  Eye,
   Plus,
   Radar,
   Radio,
@@ -15,9 +18,14 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { useAppTranslations } from '@/components/custom/i18n-provider';
 import type { SessionTransaction } from '@/hooks/use-session-transactions';
-import type { AutoTradingScanProgress } from '@/hooks/use-digits-trading';
+import type {
+  AutoTradingScheduleProgress,
+  AutoTradingScanProgress,
+} from '@/hooks/use-digits-trading';
 import type { SavedBot } from '@/components/strategy-builder';
 import { MarketScannerNotification } from '@/components/custom/market-scanner-notification';
 import { getSymbolDisplayName } from '@/lib/active-symbols-display-names';
@@ -28,6 +36,7 @@ import {
   formatSignedAmount,
 } from '@/lib/locale-format';
 import { cn } from '@/lib/utils';
+import { AUTO_TRADING_SCHEDULE_LIMITS } from '@/lib/trading-defaults';
 
 type AutoTradingStatus = 'idle' | 'scanning' | 'running' | 'stopping';
 
@@ -42,10 +51,16 @@ interface HomeDashboardProps {
   autoTradingScanProgress: AutoTradingScanProgress | null;
   autoTradingMarket: string | null;
   autoTradingTradeCount: number;
+  tradesPerMinute: string;
+  onTradesPerMinuteChange: (value: string) => void;
+  runDurationHours: string;
+  onRunDurationHoursChange: (value: string) => void;
+  autoTradingSchedule: AutoTradingScheduleProgress | null;
   activeBotId: string | null;
   isConnected: boolean;
   onResetSession: () => void;
   onViewBots: () => void;
+  onPreviewBot: (bot: SavedBot) => void;
   onStopAutoTrading: () => void;
 }
 
@@ -98,13 +113,28 @@ export function HomeDashboard({
   autoTradingScanProgress,
   autoTradingMarket,
   autoTradingTradeCount,
+  tradesPerMinute,
+  onTradesPerMinuteChange,
+  runDurationHours,
+  onRunDurationHoursChange,
+  autoTradingSchedule,
   activeBotId,
   isConnected,
   onResetSession,
   onViewBots,
+  onPreviewBot,
   onStopAutoTrading,
 }: HomeDashboardProps) {
   const { localize, locale } = useAppTranslations();
+  const [showAllTrades, setShowAllTrades] = useState(false);
+  const [scheduleClock, setScheduleClock] = useState(Date.now());
+  useEffect(() => {
+    if (!autoTradingSchedule) return;
+    const updateClock = () => setScheduleClock(Date.now());
+    updateClock();
+    const timer = window.setInterval(updateClock, 1000);
+    return () => window.clearInterval(timer);
+  }, [autoTradingSchedule?.deadlineAt]);
   const metrics = useMemo(() => {
     const now = new Date();
     const closedTrades = transactions.filter((trade) => trade.status === 'closed');
@@ -128,12 +158,19 @@ export function HomeDashboard({
     };
   }, [transactions]);
 
-  const recentTrades = useMemo(
-    () => [...transactions]
-      .sort((left, right) => right.timestamp - left.timestamp)
-      .slice(0, 5),
+  const allTrades = useMemo(
+    () => [...transactions].sort((left, right) => right.timestamp - left.timestamp),
     [transactions]
   );
+  const visibleTrades = showAllTrades ? allTrades : allTrades.slice(0, 5);
+  const scheduleRemainingSeconds = autoTradingSchedule
+    ? Math.max(0, Math.ceil((autoTradingSchedule.deadlineAt - scheduleClock) / 1000))
+    : 0;
+  const scheduleCountdown = [
+    Math.floor(scheduleRemainingSeconds / 3600),
+    Math.floor((scheduleRemainingSeconds % 3600) / 60),
+    scheduleRemainingSeconds % 60,
+  ].map((value) => String(value).padStart(2, '0')).join(':');
   const currency = transactions[0]?.currency || activeAccount?.currency || 'USD';
   const runningBots = autoTradingStatus === 'idle' ? 0 : 1;
   const activeBot = savedBots.find((bot) => bot.id === activeBotId);
@@ -267,11 +304,76 @@ export function HomeDashboard({
             )}>
               {autoTradingStatus === 'idle'
                 ? localize('Ready')
-                : autoTradingTradeCount > 0 && !autoTradingScanProgress
-                  ? localize('Trade active')
-                  : localize('Live')}
+                : autoTradingStatus === 'stopping'
+                  ? localize('Stopping...')
+                  : autoTradingSchedule?.waitingForNextMinute
+                    ? localize('Scheduled pause')
+                    : autoTradingTradeCount > 0 && !autoTradingScanProgress
+                      ? localize('Trade active')
+                      : localize('Live')}
             </span>
           </div>
+
+          {autoTradingStatus === 'idle' ? (
+            <div className="mt-3 space-y-2">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="scanner-trades-per-minute" className="text-[11px]">
+                    {localize('Trades per minute')}
+                  </Label>
+                  <Input
+                    id="scanner-trades-per-minute"
+                    type="number"
+                    min={AUTO_TRADING_SCHEDULE_LIMITS.minTradesPerMinute}
+                    max={AUTO_TRADING_SCHEDULE_LIMITS.maxTradesPerMinute}
+                    step="1"
+                    value={tradesPerMinute}
+                    onChange={(event) => onTradesPerMinuteChange(event.target.value)}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="scanner-run-duration" className="text-[11px]">
+                    {localize('Run duration (hours)')}
+                  </Label>
+                  <Input
+                    id="scanner-run-duration"
+                    type="number"
+                    min={AUTO_TRADING_SCHEDULE_LIMITS.minDurationHours}
+                    max={AUTO_TRADING_SCHEDULE_LIMITS.maxDurationHours}
+                    step="1"
+                    value={runDurationHours}
+                    onChange={(event) => onRunDurationHoursChange(event.target.value)}
+                  />
+                </div>
+              </div>
+              <p className="text-[10px] leading-relaxed text-muted-foreground">
+                {localize('Limit: {{min}}-{{max}} trades/minute; duration: {{minHours}}-{{maxHours}} hours. Only matching bot signals are traded.', {
+                  min: AUTO_TRADING_SCHEDULE_LIMITS.minTradesPerMinute,
+                  max: AUTO_TRADING_SCHEDULE_LIMITS.maxTradesPerMinute,
+                  minHours: AUTO_TRADING_SCHEDULE_LIMITS.minDurationHours,
+                  maxHours: AUTO_TRADING_SCHEDULE_LIMITS.maxDurationHours,
+                })}
+              </p>
+            </div>
+          ) : autoTradingSchedule ? (
+            <div className="mt-3 space-y-1 rounded-lg border border-primary/20 bg-primary/[0.04] px-3 py-2 text-[10px] text-muted-foreground">
+              <p className="font-semibold text-foreground">
+                {localize('{{count}} trades/minute · {{remaining}} remaining', {
+                  count: autoTradingSchedule.tradesPerMinute,
+                  remaining: scheduleCountdown,
+                })}
+              </p>
+              <p>
+                {localize('{{count}} of {{limit}} trade slots used this minute', {
+                  count: autoTradingSchedule.tradesInCurrentMinute,
+                  limit: autoTradingSchedule.tradesPerMinute,
+                })}
+              </p>
+              {scheduleRemainingSeconds === 0 && (
+                <p>{localize('Time limit reached; waiting for any open trade to settle.')}</p>
+              )}
+            </div>
+          ) : null}
 
           <div className="mt-4 flex-1">
             {autoTradingStatus !== 'idle' && autoTradingScanProgress ? (
@@ -286,9 +388,11 @@ export function HomeDashboard({
                 <p className="mt-3 text-xs font-semibold text-foreground">
                   {autoTradingStatus === 'stopping'
                     ? localize('Stopping bot...')
-                    : autoTradingTradeCount > 0
-                      ? localize('Trade in progress')
-                      : localize('Connecting live feeds')}
+                    : autoTradingSchedule?.waitingForNextMinute
+                      ? localize('Waiting for next minute')
+                      : autoTradingTradeCount > 0
+                        ? localize('Trade in progress')
+                        : localize('Connecting live feeds')}
                 </p>
                 <Button
                   type="button"
@@ -347,10 +451,13 @@ export function HomeDashboard({
                 size="sm"
                 variant="ghost"
                 className="h-8 shrink-0 px-2 text-[11px]"
-                onClick={onViewBots}
+                onClick={() => setShowAllTrades((showingAll) => !showingAll)}
+                aria-expanded={showAllTrades}
               >
-                {localize('All trades')}
-                <ArrowUpRight />
+                {localize(showAllTrades ? 'Show recent' : 'All trades')}
+                {showAllTrades
+                  ? <ChevronUp className="h-3.5 w-3.5" />
+                  : <ChevronDown className="h-3.5 w-3.5" />}
               </Button>
             </div>
           </div>
@@ -382,9 +489,12 @@ export function HomeDashboard({
             </div>
           </div>
 
-          {recentTrades.length > 0 ? (
-            <ul className="mt-3 divide-y divide-border/70">
-              {recentTrades.map((trade) => (
+          {visibleTrades.length > 0 ? (
+            <ul className={cn(
+              'mt-3 divide-y divide-border/70',
+              showAllTrades && 'max-h-[520px] overflow-y-auto scroll-smooth'
+            )}>
+              {visibleTrades.map((trade) => (
                 <li
                   key={trade.contractId}
                   className="flex items-center justify-between gap-3 py-2.5 first:pt-1"
@@ -447,16 +557,6 @@ export function HomeDashboard({
               {localize('{{count}} saved bots', { count: savedBots.length })}
             </p>
           </div>
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            className="h-8 shrink-0 px-2 text-[11px]"
-            onClick={onViewBots}
-          >
-            {localize('View all')}
-            <ArrowUpRight />
-          </Button>
         </div>
 
         {savedBots.length > 0 ? (
@@ -476,7 +576,7 @@ export function HomeDashboard({
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
                     <span className={cn(
-                      'rounded-full border px-2 py-0.5 text-[10px] font-medium',
+                      'hidden rounded-full border px-2 py-0.5 text-[10px] font-medium sm:inline',
                       isActive
                         ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500'
                         : 'border-border bg-background/70 text-muted-foreground'
@@ -485,9 +585,19 @@ export function HomeDashboard({
                         ? localize(autoTradingStatus === 'scanning' ? 'Scanning' : autoTradingStatus === 'stopping' ? 'Stopping' : 'Running')
                         : localize('Ready')}
                     </span>
-                    <span className="hidden text-[10px] text-muted-foreground sm:inline">
+                    <span className="hidden text-[10px] text-muted-foreground xl:inline">
                       {formatDate(new Date(bot.createdAt), locale)}
                     </span>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-8 shrink-0 px-2 text-[11px]"
+                      onClick={() => onPreviewBot(bot)}
+                    >
+                      <Eye />
+                      {localize('Preview')}
+                    </Button>
                   </div>
                 </li>
               );

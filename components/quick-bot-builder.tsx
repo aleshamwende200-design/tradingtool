@@ -1,16 +1,16 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Bot, Plus, RotateCcw, Settings2, Trash2, Zap } from 'lucide-react';
+import { Bot, Play, Plus, RotateCcw, Settings2, Trash2, X, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAppTranslations } from '@/components/custom/i18n-provider';
 import { compileUserTradingStrategy } from '@/lib/user-trading-strategy';
 import { TRADING_DEFAULTS } from '@/lib/trading-defaults';
-import type { SavedBotSettings } from '@/lib/user-trading-strategy';
+import type { SavedBotSettings, UserTradingStrategy } from '@/lib/user-trading-strategy';
 import type { ContractMode } from '@/lib/types';
-import type { BotBuilderTemplate } from './strategy-builder';
+import type { BotBuilderTemplate, SavedBot } from './strategy-builder';
 
 type ConditionKind = 'digit' | 'parity-run' | 'range-run' | 'sequence' | 'loss-run';
 type AnalysisType = 'pattern' | 'sequence';
@@ -43,6 +43,14 @@ interface QuickBotBuilderProps {
   template: BotBuilderTemplate | null;
   onTemplateApplied: () => void;
   onSave: (name: string, description: string, settings: SavedBotSettings) => boolean;
+  previewBot: SavedBot | null;
+  canRunPreview: boolean;
+  onCancelPreview: () => void;
+  onRunPreview: (
+    bot: SavedBot,
+    description: string,
+    settings: SavedBotSettings
+  ) => Promise<void>;
 }
 
 function createCondition(id: number, kind: ConditionKind = 'parity-run'): RuleCondition {
@@ -96,6 +104,42 @@ function normalizeBarrier(contractMode: Exclude<ContractMode, 'DIGITMATCH'>, val
   return Math.max(minimum, Math.min(maximum, Math.round(value)));
 }
 
+function getRuleConditions(strategy: UserTradingStrategy): RuleCondition[] {
+  return strategy.triggers.map((trigger, index): RuleCondition => {
+    const condition = createCondition(index + 1);
+    switch (trigger.kind) {
+      case 'digit':
+        return { ...condition, kind: 'digit', digit: String(trigger.digit) };
+      case 'parity-run':
+        return {
+          ...condition,
+          kind: 'parity-run',
+          parity: trigger.parity,
+          length: String(trigger.length),
+        };
+      case 'range-run':
+        return {
+          ...condition,
+          kind: 'range-run',
+          range: trigger.range,
+          length: String(trigger.length),
+        };
+      case 'sequence':
+        return {
+          ...condition,
+          kind: 'sequence',
+          sequence: trigger.digits.join(', '),
+        };
+      case 'loss-run':
+        return {
+          ...condition,
+          kind: 'loss-run',
+          length: String(trigger.length),
+        };
+    }
+  });
+}
+
 export function QuickBotBuilder({
   stake,
   onStakeChange,
@@ -114,6 +158,10 @@ export function QuickBotBuilder({
   template,
   onTemplateApplied,
   onSave,
+  previewBot,
+  canRunPreview,
+  onCancelPreview,
+  onRunPreview,
 }: QuickBotBuilderProps) {
   const { localize } = useAppTranslations();
   const [name, setName] = useState('');
@@ -126,6 +174,7 @@ export function QuickBotBuilder({
   const [durationDraft, setDurationDraft] = useState(String(duration));
   const [maximumStake, setMaximumStake] = useState('10');
   const [recoveryEnabled, setRecoveryEnabled] = useState(false);
+  const [previewLoaded, setPreviewLoaded] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedNotice, setSavedNotice] = useState<string | null>(null);
 
@@ -146,39 +195,7 @@ export function QuickBotBuilder({
       return;
     }
 
-    const nextConditions = result.strategy.triggers.map((trigger, index): RuleCondition => {
-      const condition = createCondition(index + 1);
-      switch (trigger.kind) {
-        case 'digit':
-          return { ...condition, kind: 'digit', digit: String(trigger.digit) };
-        case 'parity-run':
-          return {
-            ...condition,
-            kind: 'parity-run',
-            parity: trigger.parity,
-            length: String(trigger.length),
-          };
-        case 'range-run':
-          return {
-            ...condition,
-            kind: 'range-run',
-            range: trigger.range,
-            length: String(trigger.length),
-          };
-        case 'sequence':
-          return {
-            ...condition,
-            kind: 'sequence',
-            sequence: trigger.digits.join(', '),
-          };
-        case 'loss-run':
-          return {
-            ...condition,
-            kind: 'loss-run',
-            length: String(trigger.length),
-          };
-      }
-    });
+    const nextConditions = getRuleConditions(result.strategy);
 
     setAnalysisType(nextConditions.every((condition) => condition.kind === 'sequence')
       ? 'sequence'
@@ -189,7 +206,52 @@ export function QuickBotBuilder({
     setBarrier(String(result.strategy.barrier ?? 1));
     setSavedNotice(localize('Strategy loaded from Strategies. Edit its conditions, then save the bot.'));
     onTemplateApplied();
-  }, [localize, onTemplateApplied, template]);
+  }, [localize, onTemplateApplied, previewBot, template]);
+
+  useEffect(() => {
+    if (!previewBot) {
+      setPreviewLoaded(false);
+      return;
+    }
+
+    setPreviewLoaded(false);
+    const result = compileUserTradingStrategy(previewBot.description);
+    setName(previewBot.name);
+    setSaveError(null);
+    setSavedNotice(null);
+    if (!result.strategy) {
+      setSaveError(localize(result.error));
+      return;
+    }
+
+    const nextConditions = getRuleConditions(result.strategy);
+    setAnalysisType(nextConditions.every((condition) => condition.kind === 'sequence')
+      ? 'sequence'
+      : 'pattern');
+    setConditions(nextConditions);
+    setNextConditionId(nextConditions.length + 1);
+    setContractMode(result.strategy.contractMode);
+    setBarrier(String(result.strategy.barrier ?? 1));
+    setMaximumStake(previewBot.maximumStake ?? '10');
+    setRecoveryEnabled(previewBot.recoveryEnabled ?? false);
+    onStakeChange(previewBot.stake ?? TRADING_DEFAULTS.stake);
+    onDurationChange(previewBot.duration ?? TRADING_DEFAULTS.duration);
+    onTakeProfitChange(previewBot.takeProfit ?? TRADING_DEFAULTS.takeProfit);
+    onStopLossChange(previewBot.stopLoss ?? TRADING_DEFAULTS.stopLoss);
+    onMartingaleMultiplierChange(
+      previewBot.recoveryMultiplier ?? TRADING_DEFAULTS.recoveryMultiplier
+    );
+    setPreviewLoaded(true);
+    setSavedNotice(localize('Bot loaded. Adjust its inputs, then run it.'));
+  }, [
+    localize,
+    onDurationChange,
+    onMartingaleMultiplierChange,
+    onStakeChange,
+    onStopLossChange,
+    onTakeProfitChange,
+    previewBot,
+  ]);
 
   const description = useMemo(() => {
     const contract = contractDescription(contractMode, barrier);
@@ -235,21 +297,21 @@ export function QuickBotBuilder({
     setSavedNotice(null);
   };
 
-  const saveQuickBot = () => {
+  const getValidatedSettings = (): SavedBotSettings | null => {
     if (!compilation.strategy) {
       setSaveError(localize(compilation.error));
       setSavedNotice(null);
-      return;
+      return null;
     }
     if (!isDurationDraftValid) {
       setSaveError(localize('Duration must be between 1 and 200 ticks.'));
       setSavedNotice(null);
-      return;
+      return null;
     }
     if (recoveryEnabled && !isRecoveryMultiplierValid) {
       setSaveError(localize('Recovery multiplier must be greater than 1.'));
       setSavedNotice(null);
-      return;
+      return null;
     }
     const initialStake = Number(stake);
     const stakeLimit = Number(maximumStake);
@@ -257,12 +319,12 @@ export function QuickBotBuilder({
       !Number.isFinite(stakeLimit) || stakeLimit < initialStake) {
       setSaveError(localize('Maximum stake must be at least the initial stake.'));
       setSavedNotice(null);
-      return;
+      return null;
     }
     if (!takeProfit.trim() && !stopLoss.trim()) {
       setSaveError(localize('Set a take-profit or stop-loss target before creating the bot.'));
       setSavedNotice(null);
-      return;
+      return null;
     }
     const riskTargets: Array<[string, string]> = [
       [localize('Take profit'), takeProfit],
@@ -274,11 +336,13 @@ export function QuickBotBuilder({
       if (!Number.isFinite(target) || target <= 0) {
         setSaveError(localize('{{label}} must be greater than zero.', { label }));
         setSavedNotice(null);
-        return;
+        return null;
       }
     }
 
-    const settings: SavedBotSettings = {
+    setSaveError(null);
+    setSavedNotice(null);
+    return {
       stake,
       maximumStake,
       duration: parsedDuration,
@@ -287,6 +351,11 @@ export function QuickBotBuilder({
       takeProfit,
       stopLoss,
     };
+  };
+
+  const saveQuickBot = () => {
+    const settings = getValidatedSettings();
+    if (!settings) return;
     const saved = onSave(name, description, settings);
     if (!saved) {
       setSaveError(localize('The bot could not be saved. Check browser storage and try again.'));
@@ -298,6 +367,13 @@ export function QuickBotBuilder({
     setSavedNotice(localize('Quick bot saved. Run it from your saved bots below.'));
   };
 
+  const runPreviewBot = () => {
+    if (!previewBot || !previewLoaded || !canRunPreview) return;
+    const settings = getValidatedSettings();
+    if (!settings) return;
+    void onRunPreview(previewBot, description, settings);
+  };
+
   return (
     <section
       id="quick-bot-builder"
@@ -307,12 +383,29 @@ export function QuickBotBuilder({
         <div className="flex items-start gap-2">
           <Bot className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
           <div>
-            <h3 className="text-sm font-bold text-foreground">{localize('Build your trading rules')}</h3>
+            <h3 className="text-sm font-bold text-foreground">
+              {previewBot
+                ? localize('Preview saved bot: {{name}}', { name: previewBot.name })
+                : localize('Build your trading rules')}
+            </h3>
           </div>
         </div>
-        <Button type="button" size="sm" variant="outline" onClick={resetDraft} disabled={disabled}>
-          <RotateCcw />
-          {localize('Reset')}
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() => {
+            if (previewBot) {
+              resetDraft();
+              onCancelPreview();
+            } else {
+              resetDraft();
+            }
+          }}
+          disabled={disabled}
+        >
+          {previewBot ? <X /> : <RotateCcw />}
+          {localize(previewBot ? 'Cancel preview' : 'Reset')}
         </Button>
       </header>
 
@@ -756,16 +849,29 @@ export function QuickBotBuilder({
         )}
         {saveError && <p role="alert" className="text-xs text-destructive">{saveError}</p>}
         {savedNotice && <p role="status" className="text-xs text-emerald-500">{savedNotice}</p>}
-        <Button
-          type="button"
-          className="w-full sm:w-auto"
-          onClick={saveQuickBot}
-          disabled={disabled || !canSave || !name.trim() || !compilation.strategy ||
-            !isDurationDraftValid || (recoveryEnabled && !isRecoveryMultiplierValid)}
-        >
-          <Plus />
-          {localize('Create Quick Bot')}
-        </Button>
+        {previewBot ? (
+          <Button
+            type="button"
+            className="w-full sm:w-auto"
+            onClick={runPreviewBot}
+            disabled={disabled || !canRunPreview || !previewLoaded || !compilation.strategy ||
+              !isDurationDraftValid || (recoveryEnabled && !isRecoveryMultiplierValid)}
+          >
+            <Play />
+            {localize('Run with changes')}
+          </Button>
+        ) : (
+          <Button
+            type="button"
+            className="w-full sm:w-auto"
+            onClick={saveQuickBot}
+            disabled={disabled || !canSave || !name.trim() || !compilation.strategy ||
+              !isDurationDraftValid || (recoveryEnabled && !isRecoveryMultiplierValid)}
+          >
+            <Plus />
+            {localize('Create Quick Bot')}
+          </Button>
+        )}
       </div>
     </section>
   );

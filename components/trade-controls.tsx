@@ -157,21 +157,9 @@ export function TradeControls({
 
   useEffect(() => {
     if (buyResult) {
-      if (autoTradingStatus === 'idle') {
-        toast.success(localize('Contract Purchased'), {
-          description: localize(
-            'Buy price: {{buyPrice}} USD | Payout: {{payout}} USD | Balance: {{balance}} USD',
-            {
-              buyPrice: formatAmount(buyResult.buyPrice, locale),
-              payout: formatAmount(buyResult.payout, locale),
-              balance: formatAmount(buyResult.balanceAfter, locale),
-            }
-          ),
-        });
-      }
       onClearBuyResult();
     }
-  }, [buyResult, autoTradingStatus, onClearBuyResult, localize, locale]);
+  }, [buyResult, onClearBuyResult]);
 
   const isAutoTrading = autoTradingStatus !== 'idle';
   const parsedDuration = Number(durationDraft);
@@ -185,13 +173,11 @@ export function TradeControls({
   const awaitingDiffersDigit = contractMode === 'DIGITDIFF' && predictionBarrier === undefined;
   const buyButtonLabel = autoTradingStatus === 'stopping'
     ? localize('Stopping...')
-    : autoTradingStatus === 'scanning'
-      ? localize('Stop scanning')
-      : autoTradingStatus === 'running'
-        ? localize('Stop auto-trading')
-        : isBuying
-          ? localize('Purchasing...')
-          : localize('Buy');
+    : isAutoTrading
+      ? localize('Stop auto-trading')
+      : isBuying
+        ? localize('Purchasing...')
+        : localize('Start trade');
 
   return (
     <div className="space-y-2 sm:space-y-4">

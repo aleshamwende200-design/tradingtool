@@ -52,8 +52,26 @@
 }
 
 .threshold-result-shell {
-  background-image: linear-gradient(155deg, rgb(var(--primary) / 0.12), transparent 58%);
-  box-shadow: 0 0 36px rgb(var(--primary) / 0.2), 0 24px 70px rgb(0 0 0 / 0.55);
+  border: 1px solid transparent;
+  backdrop-filter: blur(18px);
+}
+.threshold-result-shell--profit {
+  border-color: rgb(52 211 153 / 0.58);
+  background-image: linear-gradient(155deg, rgb(16 185 129 / 0.22), rgb(5 15 21 / 0.96) 58%);
+  box-shadow: 0 0 42px rgb(16 185 129 / 0.25), 0 24px 70px rgb(0 0 0 / 0.6);
+}
+.threshold-result-shell--loss {
+  border-color: rgb(251 113 133 / 0.58);
+  background-image: linear-gradient(155deg, rgb(244 63 94 / 0.22), rgb(21 7 14 / 0.96) 58%);
+  box-shadow: 0 0 42px rgb(244 63 94 / 0.25), 0 24px 70px rgb(0 0 0 / 0.6);
+}
+.threshold-result-overlay--profit {
+  background: radial-gradient(ellipse at center, rgb(16 185 129 / 0.2), transparent 62%), rgb(1 5 10 / 0.84);
+  backdrop-filter: blur(12px) saturate(1.4);
+}
+.threshold-result-overlay--loss {
+  background: radial-gradient(ellipse at center, rgb(244 63 94 / 0.2), transparent 62%), rgb(8 2 7 / 0.84);
+  backdrop-filter: blur(12px) saturate(1.4);
 }
 .market-scanner-card {
   background-image: linear-gradient(155deg, rgb(var(--primary) / 0.14), transparent 62%);
@@ -72,6 +90,12 @@
 }
 .threshold-result-badge {
   animation: threshold-result-glow 2.4s ease-in-out infinite;
+}
+.threshold-result-badge--profit {
+  animation-name: threshold-result-glow-profit;
+}
+.threshold-result-badge--loss {
+  animation-name: threshold-result-glow-loss;
 }
 .take-profit-celebration {
   display: flex;
@@ -94,6 +118,14 @@
 @keyframes threshold-result-glow {
   0%, 100% { box-shadow: 0 0 12px rgb(var(--primary) / 0.2); }
   50% { box-shadow: 0 0 28px rgb(var(--primary) / 0.55); }
+}
+@keyframes threshold-result-glow-profit {
+  0%, 100% { box-shadow: 0 0 12px rgb(16 185 129 / 0.25); }
+  50% { box-shadow: 0 0 30px rgb(16 185 129 / 0.65); }
+}
+@keyframes threshold-result-glow-loss {
+  0%, 100% { box-shadow: 0 0 12px rgb(244 63 94 / 0.25); }
+  50% { box-shadow: 0 0 30px rgb(244 63 94 / 0.65); }
 }
 @media (prefers-reduced-motion: reduce) {
   .threshold-result-badge { animation: none; }

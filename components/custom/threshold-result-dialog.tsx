@@ -1,6 +1,6 @@
 'use client';
 
-import { CircleAlert, Flag, TrendingDown, TrendingUp, Trophy } from 'lucide-react';
+import { CircleAlert, TrendingDown, TrendingUp, Trophy } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -22,6 +22,7 @@ export function ThresholdResultDialog({ result, onClose }: ThresholdResultDialog
   const isTakeProfit = result?.outcome === 'take-profit';
   const OutcomeIcon = isTakeProfit ? Trophy : CircleAlert;
   const ProfitIcon = isTakeProfit ? TrendingUp : TrendingDown;
+  const outcomeStyle = isTakeProfit ? 'profit' : 'loss';
 
   return (
     <Dialog
@@ -30,12 +31,15 @@ export function ThresholdResultDialog({ result, onClose }: ThresholdResultDialog
         if (!open) onClose();
       }}
     >
-      <DialogContent className="threshold-result-shell w-[calc(100%-2rem)] max-w-md overflow-visible rounded-2xl border-primary/45 bg-card p-0 text-foreground sm:rounded-2xl">
+      <DialogContent
+        overlayClassName={`threshold-result-overlay threshold-result-overlay--${outcomeStyle}`}
+        className={`threshold-result-shell threshold-result-shell--${outcomeStyle} w-[calc(100%-2rem)] max-w-md overflow-visible rounded-2xl bg-card p-0 text-foreground sm:rounded-2xl`}
+      >
         {result && (
           <div className="relative px-5 pb-5 pt-12 sm:px-7 sm:pb-7">
             <div className="absolute -top-10 left-1/2 -translate-x-1/2">
               <div
-                className={`threshold-result-badge flex h-20 w-20 items-center justify-center rounded-full border-4 bg-card shadow-xl ${
+                className={`threshold-result-badge threshold-result-badge--${outcomeStyle} flex h-20 w-20 items-center justify-center rounded-full border-4 bg-card shadow-xl ${
                   isTakeProfit
                     ? 'border-emerald-400/80 text-emerald-400'
                     : 'border-rose-400/80 text-rose-400'
@@ -54,12 +58,15 @@ export function ThresholdResultDialog({ result, onClose }: ThresholdResultDialog
               </DialogTitle>
             </DialogHeader>
 
-            {!isTakeProfit && (
-              <div className="my-5 flex items-center justify-center gap-2 text-xs font-semibold text-primary">
-                <Flag className="h-4 w-4" />
-                <span>{localize('Review your risk settings before trading again.')}</span>
-              </div>
-            )}
+            <p
+              className={`mt-2 text-center text-sm font-medium ${
+                isTakeProfit ? 'text-emerald-100/80' : 'text-rose-100/80'
+              }`}
+            >
+              {isTakeProfit
+                ? localize('Your session reached its take-profit target.')
+                : localize('Auto-trading stopped at its stop-loss limit.')}
+            </p>
 
             {isTakeProfit && (
               <div aria-hidden="true" className="take-profit-celebration">
@@ -108,7 +115,11 @@ export function ThresholdResultDialog({ result, onClose }: ThresholdResultDialog
             </div>
 
             <Button
-              className="mt-5 h-11 w-full rounded-xl bg-primary font-bold text-primary-foreground shadow-lg shadow-primary/20 transition hover:brightness-110"
+              className={`mt-5 h-11 w-full rounded-xl font-bold text-white shadow-lg transition hover:brightness-110 ${
+                isTakeProfit
+                  ? 'bg-emerald-600 shadow-emerald-500/25 hover:bg-emerald-500'
+                  : 'bg-rose-600 shadow-rose-500/25 hover:bg-rose-500'
+              }`}
               onClick={onClose}
             >
               {localize('OK')}

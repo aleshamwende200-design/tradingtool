@@ -149,13 +149,11 @@ export function ConfigurableBuyButton({
     : !isConnected || isBuying || !isInputValid;
   const label = autoTradingStatus === 'stopping'
     ? localize('Stopping...')
-    : autoTradingStatus === 'scanning'
-      ? localize('Stop scanning')
-      : autoTradingStatus === 'running'
-        ? localize('Stop auto-trading')
-        : isBuying
-          ? localize('Purchasing...')
-          : localize('Buy');
+    : isAutoTrading
+      ? localize('Stop auto-trading')
+      : isBuying
+        ? localize('Purchasing...')
+        : localize('Start trade');
 
   const variants: Record<StyleVariant, () => React.ReactNode> = {
     // a — pill (current)

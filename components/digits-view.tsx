@@ -27,12 +27,9 @@ import { ThresholdResultDialog } from '@/components/custom/threshold-result-dial
 import { Skeleton } from '@/components/ui/skeleton';
 import { useIsMobile } from '@/hooks/use-is-mobile';
 import { useAppTranslations } from '@/components/custom/i18n-provider';
-import { formatAmount } from '@/lib/locale-format';
 import { TRADING_DEFAULTS } from '@/lib/trading-defaults';
 import { cn } from '@/lib/utils';
 import { CurrentTickDisplay } from './current-tick-display';
-import { DigitMatchScanner } from './digit-match-scanner';
-import { DigitDistributionPanel } from './digit-distribution-panel';
 import { DigitStatsBar } from './digit-stats-bar';
 import { ContractModeSelector, TradeControls } from './trade-controls';
 import { RiskManagementControls } from './risk-management-controls';
@@ -58,14 +55,10 @@ import type { ContractMode, TradeType, DigitStats } from '../lib/types';
 import type { MartingaleMode } from '../lib/martingale';
 import type { OpenPosition } from '@/hooks/use-open-positions';
 import type {
+  AutoTradingScheduleProgress,
   AutoTradingScanProgress,
   AutoTradingThresholdResult,
 } from '@/hooks/use-digits-trading';
-import type {
-  DigitMatchScannerProgress,
-  DigitMatchScannerStatus,
-} from '@/hooks/use-digit-match-scanner';
-import type { DigitMatchScanCandidate } from '@/lib/market-scanner';
 import { compileUserTradingStrategy } from '@/lib/user-trading-strategy';
 import type { SavedBotSettings, UserTradingStrategy } from '@/lib/user-trading-strategy';
 import type { BotBuilderTemplate, SavedBot } from './strategy-builder';
@@ -98,7 +91,7 @@ function getDigitTradeTypeOptions(
   ];
 }
 
-type DashboardPage = 'home' | 'strategies' | 'bots' | 'bot-builder';
+type DashboardPage = 'home' | 'strategies' | 'bots' | 'trade';
 
 function DashboardSidebar({
   appName,
@@ -129,7 +122,7 @@ function DashboardSidebar({
     { id: 'home', label: 'Home', icon: Activity },
     { id: 'strategies', label: 'Strategies', icon: BarChart3 },
     { id: 'bots', label: 'Bots', icon: Zap },
-    { id: 'bot-builder', label: 'Matches Hub', icon: ArrowUpRight },
+    { id: 'trade', label: 'Trade', icon: ArrowUpRight },
   ] as const;
 
   const renderSidebarContents = (collapsed: boolean, mobile: boolean) => (
@@ -354,13 +347,6 @@ export interface DigitsViewProps {
   isProposalLoading: boolean;
   buyContract: () => Promise<void>;
   startAutoTrading: (strategy: UserTradingStrategy, settings?: SavedBotSettings) => Promise<void>;
-  buyMatchDigits: (
-    symbol: string,
-    digits: number[],
-    stake: string,
-    duration: number
-  ) => Promise<void>;
-  isMatchTradeInProgress: boolean;
   isBuying: boolean;
   buyResult: BuyResult | null;
   buyError: string | null;
@@ -379,16 +365,15 @@ export interface DigitsViewProps {
   autoTradingMarket: string | null;
   autoTradingEstimatedWinRate: number | null;
   autoTradingScanProgress: AutoTradingScanProgress | null;
+  tradesPerMinute: string;
+  setTradesPerMinute: (value: string) => void;
+  runDurationHours: string;
+  setRunDurationHours: (value: string) => void;
+  autoTradingSchedule: AutoTradingScheduleProgress | null;
   thresholdResult: AutoTradingThresholdResult | null;
   clearThresholdResult: () => void;
   resetAutoTradingSession: () => void;
   stopAutoTrading: () => void;
-  matchScannerStatus: DigitMatchScannerStatus;
-  matchScannerCandidate: DigitMatchScanCandidate | null;
-  matchScannerProgress: DigitMatchScannerProgress;
-  matchScannerError: string | null;
-  startMatchScanner: () => void;
-  stopMatchScanner: () => void;
   // Branding (used by preview route; no-op in the real app)
   logoSrc?: string;
   appName?: string;
@@ -444,8 +429,6 @@ export function DigitsView({
   isProposalLoading,
   buyContract,
   startAutoTrading,
-  buyMatchDigits,
-  isMatchTradeInProgress,
   isBuying,
   buyResult,
   buyError,
@@ -464,16 +447,15 @@ export function DigitsView({
   autoTradingMarket,
   autoTradingEstimatedWinRate,
   autoTradingScanProgress,
+  tradesPerMinute,
+  setTradesPerMinute,
+  runDurationHours,
+  setRunDurationHours,
+  autoTradingSchedule,
   thresholdResult,
   clearThresholdResult,
   resetAutoTradingSession,
   stopAutoTrading,
-  matchScannerStatus,
-  matchScannerCandidate,
-  matchScannerProgress,
-  matchScannerError,
-  startMatchScanner,
-  stopMatchScanner,
   logoSrc,
   appName,
   appConfig,
@@ -486,8 +468,7 @@ export function DigitsView({
   const isMobile = useIsMobile();
   // Pinning is a mobile affordance: on desktop the controls card grows to fit,
   // so the Buy button is never scroll-clipped and a viewport-wide bar under a
-  // 400px column would look detached.
-  const pinBuy = !!appConfig?.buy?.pinned && isMobile;
+  // 400px column would look detached. The live bar belongs only on Trade.
   // With Buy unpinned the footer still has to sit at the end of the mobile
   // column — and a `fixed` footer makes that column reserve clearance for it.
   // That reservation was a guess (`pb-28`, 112px) for a footer that measures
@@ -505,17 +486,31 @@ export function DigitsView({
   // regression.
   const inFlowFooter = !!appConfig && isMobile;
   const { localize, locale } = useAppTranslations();
-  const [matchesHubStake, setMatchesHubStake] = useState<string>(TRADING_DEFAULTS.matchesHubStake);
   const digitTradeTypeOptions = getDigitTradeTypeOptions(localize);
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [activeDashboardPage, setActiveDashboardPage] = useState<DashboardPage>('home');
-  const isStrategySetupPage = !editMode && activeDashboardPage === 'bot-builder';
+  const pinBuy = !!appConfig?.buy?.pinned &&
+    isMobile &&
+    (editMode || activeDashboardPage === 'trade');
   const [activeSavedBotId, setActiveSavedBotId] = useState<string | null>(null);
+  const [previewBot, setPreviewBot] = useState<SavedBot | null>(null);
   const [pendingStrategyTemplate, setPendingStrategyTemplate] = useState<BotBuilderTemplate | null>(null);
   const handleTemplateApplied = useCallback(() => setPendingStrategyTemplate(null), []);
+  const handlePreviewBot = useCallback((bot: SavedBot) => {
+    setPendingStrategyTemplate(null);
+    setPreviewBot({ ...bot });
+    setActiveDashboardPage('bots');
+    window.setTimeout(() => {
+      document.getElementById('quick-bot-builder')?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      });
+    }, 0);
+  }, []);
+  const handleCancelBotPreview = useCallback(() => setPreviewBot(null), []);
   const handleUseStrategyTemplate = useCallback((template: StrategyTemplate) => {
     setPendingStrategyTemplate(template);
     setActiveDashboardPage('bots');
@@ -533,12 +528,6 @@ export function DigitsView({
     resetTransactions();
     resetAutoTradingSession();
   }, [resetAutoTradingSession, resetTransactions]);
-  useEffect(() => {
-    if (activeDashboardPage !== 'bot-builder' && matchScannerStatus === 'scanning') {
-      stopMatchScanner();
-    }
-  }, [activeDashboardPage, matchScannerStatus, stopMatchScanner]);
-
   // Logged-out Buy opens the login/sign-up prompt instead of sending a buy that
   // would fail with a "Purchase Failed" toast. One gate covers every Buy
   // surface (standard, configurable, pinned). Edit mode stays inert — the
@@ -559,13 +548,12 @@ export function DigitsView({
     await buyContract();
   }, [editMode, authState, autoTradingStatus, stopAutoTrading, buyContract]);
 
-  const handleMatchTradeLogin = useCallback(() => {
-    if (editMode || authState === 'authenticating') return;
-    setShowLoginPrompt(true);
-  }, [authState, editMode]);
-
-  const handleSavedBotRun = useCallback(async (bot: SavedBot) => {
-    const compilation = compileUserTradingStrategy(bot.description);
+  const handleSavedBotRun = useCallback(async (
+    bot: SavedBot,
+    description = bot.description,
+    settings: SavedBotSettings = bot
+  ) => {
+    const compilation = compileUserTradingStrategy(description);
     if (!compilation.strategy) {
       toast.error(localize('Saved bot strategy is invalid'), {
         description: localize(compilation.error),
@@ -575,10 +563,10 @@ export function DigitsView({
 
     setActiveSavedBotId(bot.id);
     setActiveDashboardPage('home');
-    if (bot.takeProfit !== undefined) setTakeProfit(bot.takeProfit);
-    if (bot.stopLoss !== undefined) setStopLoss(bot.stopLoss);
+    if (settings.takeProfit !== undefined) setTakeProfit(settings.takeProfit);
+    if (settings.stopLoss !== undefined) setStopLoss(settings.stopLoss);
     try {
-      await startAutoTrading(compilation.strategy, bot);
+      await startAutoTrading(compilation.strategy, { ...bot, ...settings });
     } catch (error) {
       toast.error(localize('Could not start saved bot'), {
         description: error instanceof Error ? error.message : localize('Try again after checking your connection and risk settings.'),
@@ -637,6 +625,9 @@ export function DigitsView({
     onStopAutoTrading: stopAutoTrading,
     disabled: autoTradingStatus !== 'idle',
   };
+  const handleQuickBotMultiplierChange = useCallback((value: string) => {
+    setMartingaleValue(martingaleMode, value);
+  }, [martingaleMode, setMartingaleValue]);
   const quickBotBuilderProps = {
     stake,
     onStakeChange: setStake,
@@ -648,13 +639,18 @@ export function DigitsView({
     onStopLossChange: setStopLoss,
     martingaleMode,
     martingaleMultiplier: martingaleValues[martingaleMode],
-    onMartingaleMultiplierChange: (value: string) => setMartingaleValue(martingaleMode, value),
+    onMartingaleMultiplierChange: handleQuickBotMultiplierChange,
     canSave: savedBotStore.isLoaded && savedBotStore.canPersist,
     storageError: savedBotStore.storageError,
     disabled: !!editMode || autoTradingStatus !== 'idle',
     template: pendingStrategyTemplate,
     onTemplateApplied: handleTemplateApplied,
     onSave: savedBotStore.saveBot,
+    previewBot,
+    canRunPreview: !editMode && authState === 'authenticated' && isConnected &&
+      autoTradingStatus === 'idle',
+    onCancelPreview: handleCancelBotPreview,
+    onRunPreview: handleSavedBotRun,
   };
 
   const dashboardOverview = !editMode ? (
@@ -669,18 +665,21 @@ export function DigitsView({
       autoTradingScanProgress={autoTradingScanProgress}
       autoTradingMarket={autoTradingMarket}
       autoTradingTradeCount={autoTradingTradeCount}
+      tradesPerMinute={tradesPerMinute}
+      onTradesPerMinuteChange={setTradesPerMinute}
+      runDurationHours={runDurationHours}
+      onRunDurationHoursChange={setRunDurationHours}
+      autoTradingSchedule={autoTradingSchedule}
       activeBotId={activeSavedBotId}
       isConnected={isConnected}
       onResetSession={resetSessionHistory}
       onViewBots={() => setActiveDashboardPage('bots')}
+      onPreviewBot={handlePreviewBot}
       onStopAutoTrading={stopAutoTrading}
     />
   ) : null;
 
-  // Purchase feedback for the configurable layouts lives HERE, not in
-  // ConfigurableDigitsControls: the desktop no-code layout mounts that
-  // component once per column, and a per-instance effect would fire every
-  // toast twice. Automatic sessions clear successful results without a toast.
+  // Keep purchase errors visible without stacking success cards over the trade view.
   const hasAppConfig = !!appConfig;
   useEffect(() => {
     if (!hasAppConfig || !buyError) return;
@@ -689,20 +688,8 @@ export function DigitsView({
   }, [hasAppConfig, buyError, clearBuyResult, localize]);
   useEffect(() => {
     if (!hasAppConfig || !buyResult) return;
-    if (autoTradingStatus === 'idle') {
-      toast.success(localize('Contract Purchased'), {
-        description: localize(
-          'Buy price: {{buyPrice}} USD | Payout: {{payout}} USD | Balance: {{balance}} USD',
-          {
-            buyPrice: formatAmount(buyResult.buyPrice, locale),
-            payout: formatAmount(buyResult.payout, locale),
-            balance: formatAmount(buyResult.balanceAfter, locale),
-          }
-        ),
-      });
-    }
     clearBuyResult();
-  }, [hasAppConfig, buyResult, autoTradingStatus, clearBuyResult, localize, locale]);
+  }, [hasAppConfig, buyResult, clearBuyResult]);
 
   // In edit mode, login/sign-up/account actions are inert (no OAuth navigation
   // out of the editor) — only the theme toggle stays interactive.
@@ -871,55 +858,10 @@ export function DigitsView({
           onCreateBot={savedBotStore.saveBot}
         />
       )}
-      {isStrategySetupPage && (
-        <div className={cn(
-          'mx-auto w-full max-w-3xl px-3 py-5 pb-24 sm:px-6 sm:py-7',
-          appConfig && isMobile && 'flex-1 min-h-0 overflow-y-auto overscroll-contain'
-        )}>
-          <div className="space-y-4">
-            <DigitMatchScanner
-              status={matchScannerStatus}
-              candidate={matchScannerCandidate}
-              progress={matchScannerProgress}
-              error={matchScannerError}
-              isConnected={isConnected}
-              isBotActive={autoTradingStatus !== 'idle'}
-              isAuthenticated={authState === 'authenticated'}
-              isBuying={isBuying || isMatchTradeInProgress}
-              stake={matchesHubStake}
-              currency={activeAccount?.currency ?? 'USD'}
-              duration={duration}
-              durationLimits={durationLimits}
-              transactions={transactions}
-              onStakeChange={setMatchesHubStake}
-              onDurationChange={setDuration}
-              onRequestLogin={handleMatchTradeLogin}
-              onReset={resetSessionHistory}
-              onBuyMatchDigits={buyMatchDigits}
-              onStart={startMatchScanner}
-              onStop={stopMatchScanner}
-            />
-            <DigitDistributionPanel
-              digitStats={matchScannerCandidate?.digitStats ?? digitStats}
-              marketName={
-                matchScannerCandidate
-                  ? matchScannerCandidate.symbol.underlying_symbol_name ||
-                    matchScannerCandidate.symbol.underlying_symbol
-                  : activeSymbol?.underlying_symbol_name || activeSymbol?.underlying_symbol || null
-              }
-              topDigits={matchScannerCandidate?.topDigits.map(({ digit }) => digit) ?? []}
-            />
-          </div>
-        </div>
-      )}
-
       {appConfig ? (
         isMobile ? (
           /* No-code mobile layout: a single, reorderable column of blocks. */
-          <div className={cn(
-            'flex-1 min-h-0 overflow-y-auto overscroll-contain',
-            isStrategySetupPage && 'hidden'
-          )}>
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
             {activeDashboardPage === 'home' && dashboardOverview}
             {!editMode && activeDashboardPage === 'strategies' && (
               <StrategiesLibrary
@@ -931,8 +873,7 @@ export function DigitsView({
             )}
             <div className={cn(
               'mx-auto flex w-full max-w-md flex-col gap-3 px-3 py-3 sm:px-4',
-              !editMode && (activeDashboardPage === 'home' || activeDashboardPage === 'strategies') && 'hidden',
-              isStrategySetupPage && 'hidden'
+              !editMode && (activeDashboardPage === 'home' || activeDashboardPage === 'strategies') && 'hidden'
             )}>
               {isLoading ? (
                 <Skeleton className="h-[420px] w-full rounded-xl" />
@@ -946,7 +887,7 @@ export function DigitsView({
                     id="market-column"
                     className={cn(
                       'factorpulse-panel overflow-hidden border-primary/45 bg-card/95',
-                      !isDashboardPageActive('bot-builder') && 'hidden'
+                      !isDashboardPageActive('trade') && 'hidden'
                     )}
                   >
                     <CardHeader className="flex-row items-center gap-2 border-b border-border/70 px-4 py-3">
@@ -959,7 +900,7 @@ export function DigitsView({
                       {renderConfigurable(MARKET_COLUMN_KEYS, true)}
                     </CardContent>
                   </Card>
-                  <div className={cn('space-y-4', !isDashboardPageActive('bot-builder') && 'hidden')}>
+                  <div className={cn('space-y-4', !isDashboardPageActive('trade') && 'hidden')}>
                     <Card id="manual-trade-controls" className="factorpulse-panel border-border/80 bg-card/95">
                       <CardHeader className="flex-row items-center gap-2 border-b border-border/70 px-4 py-3">
                         <Activity className="h-4 w-4 text-primary" />
@@ -1017,8 +958,7 @@ export function DigitsView({
              reordering lives in the builder's phone viewport. */
           <div className={cn(
             'mx-auto flex w-full max-w-[1600px] flex-col px-3 py-4 pb-24 sm:px-6',
-            !editMode && (activeDashboardPage === 'home' || activeDashboardPage === 'strategies') && 'hidden',
-            isStrategySetupPage && 'hidden'
+            !editMode && (activeDashboardPage === 'home' || activeDashboardPage === 'strategies') && 'hidden'
           )}>
             {isLoading ? (
               <div className={cn(
@@ -1047,7 +987,7 @@ export function DigitsView({
                   id="market-column"
                   className={cn(
                     'factorpulse-panel order-1 overflow-hidden border-primary/45 bg-card/95',
-                    !isDashboardPageActive('bot-builder') && 'hidden'
+                    !isDashboardPageActive('trade') && 'hidden'
                   )}
                   data-testid="market-column"
                 >
@@ -1069,8 +1009,8 @@ export function DigitsView({
                 {!editMode && (
                   <div className={cn(
                     'h-full space-y-4 order-3 lg:order-3 lg:col-span-2 xl:order-3 xl:col-span-2',
-                    !isDashboardPageActive('bot-builder') && 'hidden',
-                    isDashboardPageActive('bot-builder') && 'lg:col-span-1 xl:col-span-1'
+                    !isDashboardPageActive('trade') && 'hidden',
+                    isDashboardPageActive('trade') && 'lg:col-span-1 xl:col-span-1'
                   )}>
                     <Card id="manual-trade-controls" className="factorpulse-panel border-border/80 bg-card/95">
                       <CardHeader className="flex-row items-center gap-2 border-b border-border/70 px-4 py-3">
@@ -1130,8 +1070,7 @@ export function DigitsView({
         /* Standard mobile layout (unchanged): trade type chips + main card. */
         <div className={cn(
           'flex w-full max-w-7xl mx-auto flex-col px-3 py-2 sm:px-4 sm:py-4 gap-2 sm:gap-3 pb-10',
-          !editMode && (activeDashboardPage === 'home' || activeDashboardPage === 'strategies') && 'hidden',
-          isStrategySetupPage && 'hidden'
+          !editMode && (activeDashboardPage === 'home' || activeDashboardPage === 'strategies') && 'hidden'
         )}>
           {isLoading ? (
             <>
@@ -1152,7 +1091,7 @@ export function DigitsView({
                     id="market-column"
                     className={cn(
                       'space-y-3 pb-4',
-                      !isDashboardPageActive('bot-builder') && 'hidden'
+                      !isDashboardPageActive('trade') && 'hidden'
                     )}
                   >
                     <TradeTypeChips
@@ -1172,7 +1111,7 @@ export function DigitsView({
                   {/* Symbol selector; price appears beside the prediction heading except in Even/Odd mode. */}
                   <div className={cn(
                     'flex flex-col pb-4 pt-1 sm:pb-6 sm:pt-2',
-                    !isDashboardPageActive('bot-builder') && 'hidden'
+                    !isDashboardPageActive('trade') && 'hidden'
                   )}>
                     <SymbolSelector
                       symbols={symbols}
@@ -1195,13 +1134,13 @@ export function DigitsView({
 
                   <div className={cn(
                     'border-t divide-y divide-border',
-                    !isDashboardPageActive('bot-builder') && 'border-t-0 divide-y-0'
+                    !isDashboardPageActive('trade') && 'border-t-0 divide-y-0'
                   )}>
                     {/* Digit stats — hidden for Even/Odd */}
                     {tradeType !== 'even-odd' && (
                       <div className={cn(
                         'space-y-4 py-4 sm:py-6',
-                        !isDashboardPageActive('bot-builder') && 'hidden'
+                        !isDashboardPageActive('trade') && 'hidden'
                       )}>
                         <DigitStatsBar
                           digitStats={digitStats}
@@ -1223,7 +1162,7 @@ export function DigitsView({
 
                     <div className={cn(
                       'py-4 sm:py-6',
-                      !isDashboardPageActive('bot-builder') && 'hidden'
+                      !isDashboardPageActive('trade') && 'hidden'
                     )}>
                       {editMode && <BotBuilder {...botBuilderProps} />}
                       <Card id="manual-trade-controls" className="border-border/80">
@@ -1268,8 +1207,7 @@ export function DigitsView({
            the two-column market/controls layout. */
         <div className={cn(
           'mx-auto flex w-full max-w-[1600px] flex-col px-3 py-4 pb-24 sm:px-6',
-          !editMode && (activeDashboardPage === 'home' || activeDashboardPage === 'strategies') && 'hidden',
-          isStrategySetupPage && 'hidden'
+          !editMode && (activeDashboardPage === 'home' || activeDashboardPage === 'strategies') && 'hidden'
         )}>
           {isLoading ? (
             <div className={cn(
@@ -1297,7 +1235,7 @@ export function DigitsView({
                 id="market-column"
                 className={cn(
                   'factorpulse-panel order-1 overflow-hidden border-primary/45 bg-card/95',
-                  !isDashboardPageActive('bot-builder') && 'hidden'
+                  !isDashboardPageActive('trade') && 'hidden'
                 )}
                 data-testid="market-column"
               >
@@ -1366,8 +1304,8 @@ export function DigitsView({
                 editMode
                   ? 'order-2 lg:order-3 lg:col-span-2 xl:order-2 xl:col-span-1'
                   : 'order-3 lg:order-3 lg:col-span-2 xl:order-3 xl:col-span-2',
-                !isDashboardPageActive('bot-builder') && 'hidden',
-                !editMode && isDashboardPageActive('bot-builder') && 'lg:col-span-1 xl:col-span-1'
+                !isDashboardPageActive('trade') && 'hidden',
+                !editMode && isDashboardPageActive('trade') && 'lg:col-span-1 xl:col-span-1'
               )}>
                 {editMode && <BotBuilder {...botBuilderProps} />}
                 <Card id="manual-trade-controls" className="factorpulse-panel border-border/80">
@@ -1423,7 +1361,7 @@ export function DigitsView({
         </div>
       )}
 
-      {pinBuy && editMode ? (
+      {pinBuy ? (
         <PinnedBuyBar
           editMode={editMode}
           rearrangeMode={rearrangeMode}

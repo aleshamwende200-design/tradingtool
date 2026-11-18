@@ -172,9 +172,7 @@ export function RiskManagementControls({
               values={{
                 status: autoTradingStatus === 'stopping'
                   ? 'Stopping'
-                  : autoTradingStatus === 'scanning'
-                    ? 'Scanning markets'
-                    : 'Strategy bot',
+                  : 'Strategy bot',
                 count: autoTradingTradeCount,
                 profit: autoTradingProfit.toFixed(2),
               }}
@@ -202,9 +200,9 @@ export function RiskManagementControls({
             <Localize
               i18n_default_text={autoTradingStatus === 'stopping'
                 ? 'Stopping...'
-                : autoTradingStatus === 'scanning'
-                  ? 'Stop scanning'
-                  : 'Stop auto-trading after current contract'}
+                : autoTradingStatus === 'running'
+                  ? 'Stop auto-trading after current contract'
+                  : 'Stop auto-trading'}
             />
           </Button>
         </div>

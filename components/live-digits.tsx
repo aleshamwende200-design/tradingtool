@@ -44,7 +44,6 @@ export function LiveDigits({
     isExhausted,
     isAuthenticated: !!auth.wsUrl,
     onAuthWSFailed: logout,
-    currency: activeAccount?.currency ?? 'USD',
   });
 
   return (
@@ -83,8 +82,6 @@ export function LiveDigits({
       isProposalLoading={trading.isProposalLoading}
       buyContract={trading.buyContract}
       startAutoTrading={trading.startAutoTrading}
-      buyMatchDigits={trading.buyMatchDigits}
-      isMatchTradeInProgress={trading.isMatchTradeInProgress}
       isBuying={trading.isBuying}
       buyResult={trading.buyResult}
       buyError={trading.buyError}
@@ -103,16 +100,15 @@ export function LiveDigits({
       autoTradingMarket={trading.autoTradingMarket}
       autoTradingEstimatedWinRate={trading.autoTradingEstimatedWinRate}
       autoTradingScanProgress={trading.autoTradingScanProgress}
+      tradesPerMinute={trading.tradesPerMinute}
+      setTradesPerMinute={trading.setTradesPerMinute}
+      runDurationHours={trading.runDurationHours}
+      setRunDurationHours={trading.setRunDurationHours}
+      autoTradingSchedule={trading.autoTradingSchedule}
       thresholdResult={trading.thresholdResult}
       clearThresholdResult={trading.clearThresholdResult}
       resetAutoTradingSession={trading.resetAutoTradingSession}
       stopAutoTrading={trading.stopAutoTrading}
-      matchScannerStatus={trading.matchScannerStatus}
-      matchScannerCandidate={trading.matchScannerCandidate}
-      matchScannerProgress={trading.matchScannerProgress}
-      matchScannerError={trading.matchScannerError}
-      startMatchScanner={trading.startMatchScanner}
-      stopMatchScanner={trading.stopMatchScanner}
       appConfig={appConfig}
       editMode={editMode}
       onSelect={onSelect}
