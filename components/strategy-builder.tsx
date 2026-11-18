@@ -197,7 +197,7 @@ export function BotBuilder({
 
   const saveStrategy = () => {
     if (!compilation?.strategy) return;
-    const saved = onSave(name, description);
+    const saved = onSave(name, compilation.strategy.description);
     if (!saved) {
       setSaveError(localize('The bot could not be saved. Check browser storage and try again.'));
       return;
@@ -271,7 +271,7 @@ export function BotBuilder({
           </p>
           <p className="text-muted-foreground">
             {localize('Entry: {{condition}}', {
-              condition: compilation.strategy.triggers.map((trigger) => trigger.description).join(' and '),
+              condition: compilation.strategy.triggers.map((trigger) => trigger.description).join(' or '),
             })}
           </p>
         </div>

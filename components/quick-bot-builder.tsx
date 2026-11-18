@@ -194,7 +194,7 @@ export function QuickBotBuilder({
   const description = useMemo(() => {
     const contract = contractDescription(contractMode, barrier);
     const entries = conditions.map(conditionDescription);
-    return `${contract} ${entries.join(' and ')}`;
+    return `${contract} ${entries.join(' or ')}`;
   }, [barrier, conditions, contractMode]);
   const compilation = useMemo(
     () => compileUserTradingStrategy(description),
@@ -392,7 +392,7 @@ export function QuickBotBuilder({
                 {localize('Entry conditions')}
               </h4>
               <span className="text-[10px] text-muted-foreground">
-                {localize('All conditions must match')}
+                {localize('Any condition can match')}
               </span>
             </div>
 
@@ -743,7 +743,7 @@ export function QuickBotBuilder({
           <p className="text-xs text-muted-foreground">
             {localize('Rule preview: {{contract}} · Entry: {{condition}}', {
               contract: compilation.strategy.contractDescription,
-              condition: compilation.strategy.triggers.map((trigger) => trigger.description).join(' and '),
+              condition: compilation.strategy.triggers.map((trigger) => trigger.description).join(' or '),
             })}
           </p>
         ) : (

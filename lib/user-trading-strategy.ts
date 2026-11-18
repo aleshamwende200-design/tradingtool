@@ -177,7 +177,7 @@ export function compileUserTradingStrategy(description: string): StrategyCompila
     };
   }
 
-  const triggerParts = conditionText.split(/\s+and\s+/i);
+  const triggerParts = conditionText.split(/\s+(?:and|or)\s+/i);
   const triggers = triggerParts.map(compileTrigger);
   if (triggers.length === 0 || triggers.some((trigger) => trigger === null)) {
     return {
@@ -191,7 +191,7 @@ export function compileUserTradingStrategy(description: string): StrategyCompila
       contractMode,
       barrier,
       triggers: triggers.filter((trigger): trigger is DigitTrigger => trigger !== null),
-      description: normalized,
+      description: normalized.replace(/\s+and\s+/gi, ' or '),
       contractDescription,
     },
     error: null,
@@ -279,18 +279,18 @@ export function evaluateUserTradingStrategy(
 
   const pipSize = pipSizeFromPip(symbol.pip_size);
   const digits = predictionPrices.map((price) => getLastDigit(price, pipSize));
-  const triggerLength = Math.max(...strategy.triggers.map(getTriggerLength));
-  if (digits.length < triggerLength) return null;
+  const minimumTriggerLength = Math.min(...strategy.triggers.map(getTriggerLength));
+  if (digits.length < minimumTriggerLength) return null;
   const matchesTriggers = (context: number[]) =>
-    strategy.triggers.every((trigger) => {
+    strategy.triggers.some((trigger) => {
       const length = getTriggerLength(trigger);
       return triggerMatches(context.slice(-length), trigger, strategy);
     });
-  if (!matchesTriggers(digits)) return null;
+  const ruleMatched = matchesTriggers(digits);
 
   let triggerMatchesInHistory = 0;
   let wins = 0;
-  for (let outcomeIndex = triggerLength; outcomeIndex < digits.length; outcomeIndex += 1) {
+  for (let outcomeIndex = minimumTriggerLength; outcomeIndex < digits.length; outcomeIndex += 1) {
     const context = digits.slice(0, outcomeIndex);
     if (!matchesTriggers(context)) continue;
     triggerMatchesInHistory += 1;
@@ -310,9 +310,9 @@ export function evaluateUserTradingStrategy(
     estimatedWinRate: triggerMatchesInHistory > 0
       ? getWilsonLowerBound(wins, triggerMatchesInHistory)
       : predictedWinRate,
-    eligibleForTrading: true,
+    ruleMatched,
     sampleCount: predictionPrices.length,
     triggerMatches: triggerMatchesInHistory,
-    triggerDescription: strategy.triggers.map((trigger) => trigger.description).join(' and '),
+    triggerDescription: strategy.triggers.map((trigger) => trigger.description).join(' or '),
   };
 }

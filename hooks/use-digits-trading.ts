@@ -71,7 +71,7 @@ export interface AutoTradingPrediction {
   sampleCount: number;
   triggerMatches: number;
   triggerDescription: string;
-  eligibleForTrading: boolean;
+  ruleMatched: boolean;
 }
 
 type MarketScanProgressCallback = (
@@ -79,6 +79,7 @@ type MarketScanProgressCallback = (
   totalMarkets: number,
   unavailableMarkets: number
 ) => void;
+type MarketScanCandidateCallback = (candidate: MarketScanCandidate) => void;
 type ActiveTickSubscriber = (
   symbol: string,
   handler: (tick: Tick) => void
@@ -98,7 +99,7 @@ function getCandidatePrediction(
     sampleCount: candidate.sampleCount,
     triggerMatches: candidate.triggerMatches,
     triggerDescription: candidate.triggerDescription,
-    eligibleForTrading: candidate.eligibleForTrading,
+    ruleMatched: candidate.ruleMatched,
   };
 }
 
@@ -122,6 +123,7 @@ async function scanMarkets(
   shouldStop: () => boolean,
   subscribeToActiveTicks: ActiveTickSubscriber,
   isCandidateRejected: (candidate: MarketScanCandidate) => boolean,
+  onCandidatePreview: MarketScanCandidateCallback,
   onProgress: MarketScanProgressCallback
 ): Promise<MarketScanCandidate | null | typeof CONNECTION_LOST> {
   const openSymbols = Array.from(
@@ -196,10 +198,16 @@ async function scanMarkets(
         const marketPrices = pricesBySymbol.get(symbol.underlying_symbol);
         if (!marketPrices) return [];
         const candidate = evaluateUserTradingStrategy(symbol, marketPrices, strategy);
-        return candidate && !isCandidateRejected(candidate) ? [candidate] : [];
+        return candidate ? [candidate] : [];
       });
-      const bestCandidate = chooseBestScanCandidate(candidates);
-      if (bestCandidate) finish(bestCandidate);
+      const bestPreview = chooseBestScanCandidate(candidates);
+      if (bestPreview) onCandidatePreview(bestPreview);
+      const bestEligibleCandidate = chooseBestScanCandidate(
+        candidates.filter(
+          (candidate) => candidate.ruleMatched && !isCandidateRejected(candidate)
+        )
+      );
+      if (bestEligibleCandidate) finish(bestEligibleCandidate);
     };
 
     const activeSymbols = new Set<string>();
@@ -997,6 +1005,14 @@ export function useDigitsTrading({
               return false;
             }
             return true;
+          },
+          (candidatePreview) => {
+            const prediction = getCandidatePrediction(candidatePreview, scanNumber);
+            setAutoTradingScanProgress((progress) =>
+              progress?.phase === 'scanning'
+                ? { ...progress, prediction }
+                : progress
+            );
           },
           (scannedMarkets, marketCount, unavailableMarkets) => {
             setAutoTradingScanProgress((progress) =>

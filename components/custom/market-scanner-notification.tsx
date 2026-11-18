@@ -154,9 +154,14 @@ export function MarketScannerNotification({
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">
-                  {localize('Rule match from scan {{number}}', {
-                    number: prediction.scanNumber,
-                  })}
+                  {localize(
+                    prediction.ruleMatched
+                      ? 'Rule match from scan {{number}}'
+                      : 'Best live candidate from scan {{number}}',
+                    {
+                      number: prediction.scanNumber,
+                    }
+                  )}
                 </p>
                 <p className="truncate text-sm font-bold" title={prediction.market}>
                   {prediction.market} · {predictionContractLabel}
@@ -181,8 +186,8 @@ export function MarketScannerNotification({
                   count: prediction.triggerMatches,
                 })}
               </span>
-              <span className={prediction.eligibleForTrading ? 'text-emerald-500' : 'text-amber-500'}>
-                {prediction.eligibleForTrading
+              <span className={prediction.ruleMatched ? 'text-emerald-500' : 'text-amber-500'}>
+                {prediction.ruleMatched
                   ? localize('Rule matched')
                   : localize('Waiting for rule')}
               </span>

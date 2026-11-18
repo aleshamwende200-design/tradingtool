@@ -249,7 +249,7 @@ export function StrategiesLibrary({
               </p>
               <p className="text-muted-foreground">
                 {localize('Entry: {{condition}}', {
-                  condition: compilation.strategy.triggers.map((trigger) => trigger.description).join(' and '),
+                  condition: compilation.strategy.triggers.map((trigger) => trigger.description).join(' or '),
                 })}
               </p>
             </div>

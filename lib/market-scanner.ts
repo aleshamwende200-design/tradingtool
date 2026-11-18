@@ -15,7 +15,7 @@ export interface MarketScanCandidate {
   predictionPrices: number[];
   estimatedWinRate: number;
   predictedWinRate: number;
-  eligibleForTrading: boolean;
+  ruleMatched: boolean;
   sampleCount: number;
   triggerMatches: number;
   triggerDescription: string;
