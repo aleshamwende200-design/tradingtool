@@ -20,7 +20,8 @@ export function MarketScannerNotification({
   if (!progress) return null;
 
   const isSelected = progress.phase === 'selected';
-  const hasSignal = progress.prediction !== null;
+  const prediction = progress.prediction;
+  const hasSignal = prediction?.ruleMatched ?? false;
   const progressPercent = progress.totalMarkets > 0
     ? Math.min(100, (progress.scannedMarkets / progress.totalMarkets) * 100)
     : 0;
@@ -31,7 +32,6 @@ export function MarketScannerNotification({
     : hasSignal
       ? localize('ENTRY CONDITION FOUND')
       : localize('WAITING FOR RULE');
-  const prediction = progress.prediction;
   const predictionContractLabel = (() => {
     switch (prediction?.contractMode) {
       case 'DIGITDIFF':

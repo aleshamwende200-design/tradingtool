@@ -1165,14 +1165,6 @@ export function useDigitsTrading({
           skipUnfavorableCandidate(candidate);
           continue;
         }
-        if (
-          candidate.triggerMatches === 0 ||
-          candidate.estimatedWinRate * quote.payout <= quote.ask_price
-        ) {
-          skipUnfavorableCandidate(candidate);
-          continue;
-        }
-
         if (!tradingWs.isConnected) {
           const reconnected = await waitForConnection(
             tradingWs,
