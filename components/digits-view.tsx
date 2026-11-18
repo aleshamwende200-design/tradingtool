@@ -30,6 +30,8 @@ import { useAppTranslations } from '@/components/custom/i18n-provider';
 import { formatAmount } from '@/lib/locale-format';
 import { cn } from '@/lib/utils';
 import { CurrentTickDisplay } from './current-tick-display';
+import { DigitMatchScanner } from './digit-match-scanner';
+import { DigitDistributionPanel } from './digit-distribution-panel';
 import { DigitStatsBar } from './digit-stats-bar';
 import { ContractModeSelector, TradeControls } from './trade-controls';
 import { RiskManagementControls } from './risk-management-controls';
@@ -58,6 +60,11 @@ import type {
   AutoTradingScanProgress,
   AutoTradingThresholdResult,
 } from '@/hooks/use-digits-trading';
+import type {
+  DigitMatchScannerProgress,
+  DigitMatchScannerStatus,
+} from '@/hooks/use-digit-match-scanner';
+import type { DigitMatchScanCandidate } from '@/lib/market-scanner';
 import { compileUserTradingStrategy } from '@/lib/user-trading-strategy';
 import type { SavedBotSettings, UserTradingStrategy } from '@/lib/user-trading-strategy';
 import type { BotBuilderTemplate, SavedBot } from './strategy-builder';
@@ -121,7 +128,7 @@ function DashboardSidebar({
     { id: 'home', label: 'Home', icon: Activity },
     { id: 'strategies', label: 'Strategies', icon: BarChart3 },
     { id: 'bots', label: 'Bots', icon: Zap },
-    { id: 'bot-builder', label: 'Bot Settings', icon: ArrowUpRight },
+    { id: 'bot-builder', label: 'Matches Hub', icon: ArrowUpRight },
   ] as const;
 
   const renderSidebarContents = (collapsed: boolean, mobile: boolean) => (
@@ -346,6 +353,13 @@ export interface DigitsViewProps {
   isProposalLoading: boolean;
   buyContract: () => Promise<void>;
   startAutoTrading: (strategy: UserTradingStrategy, settings?: SavedBotSettings) => Promise<void>;
+  buyMatchDigits: (
+    symbol: string,
+    digits: number[],
+    stake: string,
+    duration: number
+  ) => Promise<void>;
+  isMatchTradeInProgress: boolean;
   isBuying: boolean;
   buyResult: BuyResult | null;
   buyError: string | null;
@@ -368,6 +382,12 @@ export interface DigitsViewProps {
   clearThresholdResult: () => void;
   resetAutoTradingSession: () => void;
   stopAutoTrading: () => void;
+  matchScannerStatus: DigitMatchScannerStatus;
+  matchScannerCandidate: DigitMatchScanCandidate | null;
+  matchScannerProgress: DigitMatchScannerProgress;
+  matchScannerError: string | null;
+  startMatchScanner: () => void;
+  stopMatchScanner: () => void;
   // Branding (used by preview route; no-op in the real app)
   logoSrc?: string;
   appName?: string;
@@ -423,6 +443,8 @@ export function DigitsView({
   isProposalLoading,
   buyContract,
   startAutoTrading,
+  buyMatchDigits,
+  isMatchTradeInProgress,
   isBuying,
   buyResult,
   buyError,
@@ -445,6 +467,12 @@ export function DigitsView({
   clearThresholdResult,
   resetAutoTradingSession,
   stopAutoTrading,
+  matchScannerStatus,
+  matchScannerCandidate,
+  matchScannerProgress,
+  matchScannerError,
+  startMatchScanner,
+  stopMatchScanner,
   logoSrc,
   appName,
   appConfig,
@@ -503,6 +531,11 @@ export function DigitsView({
     resetTransactions();
     resetAutoTradingSession();
   }, [resetAutoTradingSession, resetTransactions]);
+  useEffect(() => {
+    if (activeDashboardPage !== 'bot-builder' && matchScannerStatus === 'scanning') {
+      stopMatchScanner();
+    }
+  }, [activeDashboardPage, matchScannerStatus, stopMatchScanner]);
 
   // Logged-out Buy opens the login/sign-up prompt instead of sending a buy that
   // would fail with a "Purchase Failed" toast. One gate covers every Buy
@@ -523,6 +556,11 @@ export function DigitsView({
     }
     await buyContract();
   }, [editMode, authState, autoTradingStatus, stopAutoTrading, buyContract]);
+
+  const handleMatchTradeLogin = useCallback(() => {
+    if (editMode || authState === 'authenticating') return;
+    setShowLoginPrompt(true);
+  }, [authState, editMode]);
 
   const handleSavedBotRun = useCallback(async (bot: SavedBot) => {
     const compilation = compileUserTradingStrategy(bot.description);
@@ -835,7 +873,39 @@ export function DigitsView({
           'mx-auto w-full max-w-3xl px-3 py-5 pb-24 sm:px-6 sm:py-7',
           appConfig && isMobile && 'flex-1 min-h-0 overflow-y-auto overscroll-contain'
         )}>
-          <BotBuilder {...botBuilderProps} />
+          <div className="space-y-4">
+            <DigitMatchScanner
+              status={matchScannerStatus}
+              candidate={matchScannerCandidate}
+              progress={matchScannerProgress}
+              error={matchScannerError}
+              isConnected={isConnected}
+              isBotActive={autoTradingStatus !== 'idle'}
+              isAuthenticated={authState === 'authenticated'}
+              isBuying={isBuying || isMatchTradeInProgress}
+              stake={stake}
+              currency={activeAccount?.currency ?? 'USD'}
+              duration={duration}
+              durationLimits={durationLimits}
+              transactions={transactions}
+              onStakeChange={setStake}
+              onDurationChange={setDuration}
+              onRequestLogin={handleMatchTradeLogin}
+              onBuyMatchDigits={buyMatchDigits}
+              onStart={startMatchScanner}
+              onStop={stopMatchScanner}
+            />
+            <DigitDistributionPanel
+              digitStats={matchScannerCandidate?.digitStats ?? digitStats}
+              marketName={
+                matchScannerCandidate
+                  ? matchScannerCandidate.symbol.underlying_symbol_name ||
+                    matchScannerCandidate.symbol.underlying_symbol
+                  : activeSymbol?.underlying_symbol_name || activeSymbol?.underlying_symbol || null
+              }
+              topDigits={matchScannerCandidate?.topDigits.map(({ digit }) => digit) ?? []}
+            />
+          </div>
         </div>
       )}
 

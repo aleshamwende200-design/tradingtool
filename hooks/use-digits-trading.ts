@@ -19,13 +19,19 @@ import { toast } from 'sonner';
 import { useBaseTrading } from '@/hooks/use-base-trading';
 import type { UseBaseTradingParams } from '@/hooks/use-base-trading';
 import { computeDigitStats, getLastDigit, pipSizeFromPip } from '../lib/digit-stats';
+import { useDigitMatchScanner } from './use-digit-match-scanner';
 import {
   chooseBestScanCandidate,
+  DIGIT_MATCH_SCAN_COUNT,
   getContractBarrier,
   getScannableMarkets,
   MARKET_SCAN_TICK_COUNT,
 } from '../lib/market-scanner';
-import type { MarketScanCandidate } from '../lib/market-scanner';
+import type { DigitMatchScanCandidate, MarketScanCandidate } from '../lib/market-scanner';
+import type {
+  DigitMatchScannerProgress,
+  DigitMatchScannerStatus,
+} from './use-digit-match-scanner';
 import { evaluateUserTradingStrategy } from '../lib/user-trading-strategy';
 import type { SavedBotSettings, UserTradingStrategy } from '../lib/user-trading-strategy';
 import { getNextMartingaleStake, initialMartingaleProgress } from '../lib/martingale';
@@ -33,7 +39,7 @@ import type { MartingaleMode } from '../lib/martingale';
 import { useAppTranslations } from '@/components/custom/i18n-provider';
 import type { ContractMode, TradeType, DigitStats, OpenPosition, ClosedPosition } from '../lib/types';
 
-const CONTRACT_TYPES = ['DIGITDIFF', 'DIGITOVER', 'DIGITUNDER', 'DIGITEVEN', 'DIGITODD'];
+const CONTRACT_TYPES = ['DIGITMATCH', 'DIGITDIFF', 'DIGITOVER', 'DIGITUNDER', 'DIGITEVEN', 'DIGITODD'];
 
 type AutoTradingStatus = 'idle' | 'scanning' | 'running' | 'stopping';
 const CONTRACT_SETTLEMENT_TIMEOUT_MS = 15 * 60 * 1000;
@@ -390,6 +396,13 @@ interface UseDigitsTradingReturn {
   isProposalLoading: boolean;
   buyContract: () => Promise<void>;
   startAutoTrading: (strategy: UserTradingStrategy, settings?: SavedBotSettings) => Promise<void>;
+  buyMatchDigits: (
+    symbol: string,
+    digits: number[],
+    stake: string,
+    duration: number
+  ) => Promise<void>;
+  isMatchTradeInProgress: boolean;
   isBuying: boolean;
   buyResult: BuyResult | null;
   buyError: string | null;
@@ -418,11 +431,26 @@ interface UseDigitsTradingReturn {
   autoTradingEstimatedWinRate: number | null;
   autoTradingScanProgress: AutoTradingScanProgress | null;
   stopAutoTrading: () => void;
+  matchScannerStatus: DigitMatchScannerStatus;
+  matchScannerCandidate: DigitMatchScanCandidate | null;
+  matchScannerProgress: DigitMatchScannerProgress;
+  matchScannerError: string | null;
+  startMatchScanner: () => void;
+  stopMatchScanner: () => void;
 }
 
-export type UseDigitsTradingParams = Pick<UseBaseTradingParams, 'ws' | 'isConnected' | 'isExhausted' | 'isAuthenticated' | 'onAuthWSFailed'>;
+export type UseDigitsTradingParams = Pick<UseBaseTradingParams, 'ws' | 'isConnected' | 'isExhausted' | 'isAuthenticated' | 'onAuthWSFailed'> & {
+  currency?: string;
+};
 
-export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated, onAuthWSFailed }: UseDigitsTradingParams): UseDigitsTradingReturn {
+export function useDigitsTrading({
+  ws,
+  isConnected,
+  isExhausted,
+  isAuthenticated,
+  onAuthWSFailed,
+  currency = 'USD',
+}: UseDigitsTradingParams): UseDigitsTradingReturn {
   const { localize } = useAppTranslations();
   const {
     ws: tradingWs,
@@ -475,6 +503,8 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
   } | null>(null);
   const autoSessionRef = useRef<{ stopRequested: boolean } | null>(null);
   const autoSessionStatsRef = useRef({ profit: 0, tradeCount: 0, generation: 0 });
+  const matchTradeInProgressRef = useRef(false);
+  const [isMatchTradeInProgress, setIsMatchTradeInProgress] = useState(false);
   const selectSymbolRef = useRef(selectSymbol);
   const activeSymbolRef = useRef(activeSymbol);
   const activeTickListenersRef = useRef(new Map<string, Set<(tick: Tick) => void>>());
@@ -508,6 +538,12 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
       if (listeners.size === 0) activeTickListenersRef.current.delete(symbol);
     };
   }, []);
+
+  const matchScanner = useDigitMatchScanner({
+    ws: tradingWs,
+    isConnected: tradingIsConnected,
+    symbols,
+  });
 
   useEffect(() => {
     if (!activeSymbol || !currentTick || currentTick.symbol !== activeSymbol.underlying_symbol) return;
@@ -650,6 +686,180 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
       });
     }
   }, [buyWithProposal, localize, proposal, stopAutoTrading, tradingWs]);
+
+  const buyMatchDigits = useCallback(async (
+    symbol: string,
+    digits: number[],
+    stakeValue: string,
+    tradeDuration: number
+  ) => {
+    if (matchTradeInProgressRef.current) return;
+    if (!tradingWs?.isConnected || !tradingIsConnected || !isAuthenticated) {
+      toast.error(localize('Log in and connect before placing a Digit Match trade.'));
+      return;
+    }
+    if (autoSessionRef.current) {
+      toast.error(localize('Stop the active bot before placing a manual trade.'));
+      return;
+    }
+
+    const amountPerDigit = Number(stakeValue);
+    if (!Number.isFinite(amountPerDigit) || amountPerDigit <= 0) {
+      toast.error(localize('Stake must be greater than zero.'));
+      return;
+    }
+    if (
+      digits.length !== DIGIT_MATCH_SCAN_COUNT ||
+      new Set(digits).size !== DIGIT_MATCH_SCAN_COUNT ||
+      digits.some((digit) => !Number.isInteger(digit) || digit < 0 || digit > 9)
+    ) {
+      toast.error(localize('Select five unique digits from 0 to 9.'));
+      return;
+    }
+    if (
+      !Number.isInteger(tradeDuration) ||
+      tradeDuration < Math.max(1, durationLimits.min) ||
+      tradeDuration > Math.min(200, durationLimits.max)
+    ) {
+      toast.error(localize('Duration must be within the available tick range.'));
+      return;
+    }
+
+    matchTradeInProgressRef.current = true;
+    setIsMatchTradeInProgress(true);
+    try {
+      const quotes = await Promise.all(digits.map(async (digit) => {
+        const response = await tradingWs.send<ProposalResponse>({
+          proposal: 1,
+          amount: amountPerDigit,
+          basis: 'stake',
+          contract_type: 'DIGITMATCH',
+          currency,
+          duration: tradeDuration,
+          duration_unit: 't',
+          symbol,
+          barrier: digit,
+        });
+        const quote = response.proposal;
+        if (!quote?.id || !Number.isFinite(quote.ask_price) || quote.ask_price <= 0) {
+          throw new Error(localize('Could not get a valid Digit Match proposal for digit {{digit}}.', {
+            digit,
+          }));
+        }
+        if (!Number.isFinite(quote.payout) || quote.payout <= quote.ask_price) {
+          throw new Error(localize('Digit {{digit}} has no positive potential return.', {
+            digit,
+          }));
+        }
+        return { digit, quote };
+      }));
+
+      const purchasedContracts: Array<{ digit: number; contractId: number }> = [];
+      const purchaseFailures: Array<{ digit: number; message: string }> = [];
+      await Promise.all(quotes.map(async ({ digit, quote }) => {
+        let purchaseError: unknown = null;
+        try {
+          const purchase = await buyWithProposal({
+            id: quote.id,
+            askPrice: quote.ask_price,
+            payout: quote.payout,
+            longcode: quote.longcode,
+            minStake: Number(quote.validation_params?.stake?.min ?? 0),
+            maxPayout: Number(quote.validation_params?.payout?.max ?? 0),
+          }, (error) => {
+            purchaseError = error;
+            return true;
+          });
+          if (!purchase) {
+            throw purchaseError instanceof Error
+              ? purchaseError
+              : new Error(localize('The Digit Match purchase was not confirmed.'));
+          }
+          purchasedContracts.push({ digit, contractId: purchase.contractId });
+        } catch (error) {
+          purchaseFailures.push({
+            digit,
+            message: error instanceof Error
+              ? error.message
+              : localize('The trade could not be completed.'),
+          });
+        }
+      }));
+
+      const settlements = await Promise.all(purchasedContracts.map(async ({ digit, contractId }) => {
+        try {
+          return {
+            digit,
+            profit: await waitForContractSettlement(tradingWs, contractId),
+          };
+        } catch (error) {
+          return {
+            digit,
+            error: error instanceof Error
+              ? error.message
+              : localize('The trade settlement could not be confirmed.'),
+          };
+        }
+      }));
+      const settledTrades = settlements.filter(
+        (settlement): settlement is { digit: number; profit: number } =>
+          typeof settlement.profit === 'number'
+      );
+      const unsettledTrades = settlements.filter(
+        (settlement): settlement is { digit: number; error: string } =>
+          typeof settlement.error === 'string'
+      );
+      const totalProfit = settledTrades.reduce((total, trade) => total + trade.profit, 0);
+
+      if (purchaseFailures.length > 0 || unsettledTrades.length > 0) {
+        const issues = [
+          ...purchaseFailures.map(({ digit, message }) => localize('Digit {{digit}}: {{message}}', {
+            digit,
+            message,
+          })),
+          ...unsettledTrades.map(({ digit, error }) => localize('Digit {{digit}} settlement: {{error}}', {
+            digit,
+            error,
+          })),
+        ].join('; ');
+        toast.error(localize('Digit Match batch finished with issues'), {
+          description: localize(
+            'Placed {{placed}} of {{requested}} contracts. Settled P/L: {{profit}} {{currency}}. {{issues}}',
+            {
+              placed: purchasedContracts.length,
+              requested: DIGIT_MATCH_SCAN_COUNT,
+              profit: totalProfit.toFixed(2),
+              currency,
+              issues,
+            }
+          ),
+        });
+      } else {
+        toast.success(localize('All five Digit Match trades settled'), {
+          description: localize('Total P/L: {{profit}} {{currency}}', {
+            profit: totalProfit.toFixed(2),
+            currency,
+          }),
+        });
+      }
+    } catch (error) {
+      toast.error(localize('Could not prepare all five Digit Match trades'), {
+        description: error instanceof Error ? error.message : localize('The trade could not be completed.'),
+      });
+    } finally {
+      matchTradeInProgressRef.current = false;
+      setIsMatchTradeInProgress(false);
+    }
+  }, [
+    buyWithProposal,
+    currency,
+    durationLimits.max,
+    durationLimits.min,
+    isAuthenticated,
+    localize,
+    tradingIsConnected,
+    tradingWs,
+  ]);
 
   const startAutoTrading = useCallback(async (
     strategy: UserTradingStrategy,
@@ -1105,6 +1315,8 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
     isProposalLoading: isConnected && proposalParams !== null && proposal === null,
     buyContract,
     startAutoTrading,
+    buyMatchDigits,
+    isMatchTradeInProgress,
     isBuying,
     buyResult,
     buyError,
@@ -1133,5 +1345,11 @@ export function useDigitsTrading({ ws, isConnected, isExhausted, isAuthenticated
     autoTradingEstimatedWinRate,
     autoTradingScanProgress,
     stopAutoTrading,
+    matchScannerStatus: matchScanner.status,
+    matchScannerCandidate: matchScanner.candidate,
+    matchScannerProgress: matchScanner.progress,
+    matchScannerError: matchScanner.error,
+    startMatchScanner: matchScanner.start,
+    stopMatchScanner: matchScanner.stop,
   };
 }

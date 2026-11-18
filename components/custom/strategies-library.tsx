@@ -175,7 +175,7 @@ export function StrategiesLibrary({
             {localize('Strategies')}
           </h1>
           <p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted-foreground sm:text-sm">
-            {localize('Choose a starting rule, customize it in Bot Settings, and save it as a bot.')}
+            {localize('Choose a starting rule, customize it in Bots, and save it as a bot.')}
           </p>
         </div>
         <Button
