@@ -126,10 +126,10 @@ export function MarketScannerNotification({
             <p className="mt-1 break-words text-[11px] leading-relaxed text-muted-foreground">
               {localize('Bot rule: {{rule}}', { rule: progress.ruleDescription })}
             </p>
-            {progress.skippedNoReturnMarkets > 0 && (
+            {progress.skippedUnfavorableMarkets > 0 && (
               <p className="mt-1 text-[11px] font-medium text-amber-600 dark:text-amber-400">
-                {localize('{{count}} no-return setups skipped', {
-                  count: progress.skippedNoReturnMarkets,
+                {localize('{{count}} unfavorable setups skipped', {
+                  count: progress.skippedUnfavorableMarkets,
                 })}
               </p>
             )}

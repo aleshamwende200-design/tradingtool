@@ -1,6 +1,7 @@
 'use client';
 
-import { AlertCircle, Radar, Square } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { AlertCircle, Radar, RotateCcw, Square } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { DurationLimits } from '@deriv/core';
 import type { SessionTransaction } from '@/hooks/use-session-transactions';
@@ -31,6 +32,7 @@ interface DigitMatchScannerProps {
   onStakeChange: (stake: string) => void;
   onDurationChange: (duration: number) => void;
   onRequestLogin: () => void;
+  onReset: () => void;
   onBuyMatchDigits: (
     symbol: string,
     digits: number[],
@@ -58,12 +60,26 @@ export function DigitMatchScanner({
   onStakeChange,
   onDurationChange,
   onRequestLogin,
+  onReset,
   onBuyMatchDigits,
   onStart,
   onStop,
 }: DigitMatchScannerProps) {
   const { localize, locale } = useAppTranslations();
+  const [durationDraft, setDurationDraft] = useState(String(duration));
   const isScanning = status === 'scanning';
+  const parsedDuration = Number(durationDraft);
+  const isDurationValid = durationDraft.trim() !== '' &&
+    Number.isInteger(parsedDuration) &&
+    parsedDuration >= durationLimits.min &&
+    parsedDuration <= durationLimits.max;
+  const numericStake = Number(stake);
+  const isStakeValid = stake.trim() !== '' && Number.isFinite(numericStake) && numericStake > 0;
+
+  useEffect(() => {
+    setDurationDraft(String(duration));
+  }, [duration]);
+
   const matchTrades = transactions
     .filter((transaction) => transaction.contractType === 'DIGITMATCH')
     .sort((left, right) => right.timestamp - left.timestamp);
@@ -74,8 +90,7 @@ export function DigitMatchScanner({
     (total, transaction) => total + (Number.isFinite(transaction.profit) ? transaction.profit : 0),
     0
   );
-  const numericStake = Number(stake);
-  const totalStake = Number.isFinite(numericStake) && numericStake > 0
+  const totalStake = isStakeValid
     ? `${formatAmount(numericStake * DIGIT_MATCH_SCAN_COUNT, locale)} ${currency}`
     : localize('Enter a valid stake');
   const statusLabel = isScanning
@@ -99,9 +114,6 @@ export function DigitMatchScanner({
             <h2 className="text-sm font-bold text-foreground sm:text-base">
               {localize('Live match scanner')}
             </h2>
-            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-              {localize('Compare recent live digit frequencies across open continuous-index markets.')}
-            </p>
           </div>
         </div>
         <span className={cn(
@@ -202,8 +214,16 @@ export function DigitMatchScanner({
                 min={durationLimits.min}
                 max={durationLimits.max}
                 step="1"
-                value={duration}
-                onChange={(event) => onDurationChange(Number(event.target.value))}
+                value={durationDraft}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setDurationDraft(value);
+                  const parsed = Number(value);
+                  if (value !== '' && Number.isInteger(parsed) &&
+                    parsed >= durationLimits.min && parsed <= durationLimits.max) {
+                    onDurationChange(parsed);
+                  }
+                }}
                 disabled={isBuying || isBotActive}
                 className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground"
               />
@@ -215,18 +235,17 @@ export function DigitMatchScanner({
               total: totalStake,
             })}
           </p>
-          <p className="mt-3 text-xs font-semibold text-foreground">
-            {localize('Trade all {{count}} top digits together', {
-              count: DIGIT_MATCH_SCAN_COUNT,
-            })}
-          </p>
           <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
             <Button
               type="button"
               disabled={
                 isBuying ||
                 isBotActive ||
-                (isAuthenticated && !isConnected)
+                (isAuthenticated && (
+                  !isConnected ||
+                  !isStakeValid ||
+                  !isDurationValid
+                ))
               }
               onClick={() => {
                 if (!isAuthenticated) {
@@ -237,7 +256,7 @@ export function DigitMatchScanner({
                   candidate.symbol.underlying_symbol,
                   candidate.topDigits.map(({ digit }) => digit),
                   stake,
-                  duration
+                  parsedDuration
                 );
               }}
             >
@@ -256,13 +275,6 @@ export function DigitMatchScanner({
               ))}
             </div>
           </div>
-          {!isAuthenticated && (
-            <p className="mt-2 text-[10px] text-muted-foreground">
-              {localize('Select Buy all {{count}} digits to sign in before trading.', {
-                count: DIGIT_MATCH_SCAN_COUNT,
-              })}
-            </p>
-          )}
           {isAuthenticated && !isConnected && (
             <p className="mt-2 text-[10px] text-muted-foreground">
               {localize('Reconnect to the live market before trading.')}
@@ -272,6 +284,24 @@ export function DigitMatchScanner({
       )}
 
       <div className="mt-3 rounded-lg border border-border/70">
+        <div className="flex items-center justify-between gap-2 border-b border-border/60 px-3 py-2">
+          <h3 className="text-xs font-semibold text-foreground">
+            {localize('Recent trades')}
+          </h3>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-7 px-2 text-[10px]"
+            aria-label={localize('Reset all session trades and TP/SL progress')}
+            title={localize('Reset all session trades and TP/SL progress')}
+            disabled={!isAuthenticated || matchTrades.length === 0}
+            onClick={onReset}
+          >
+            <RotateCcw className="h-3 w-3" />
+            {localize('Reset')}
+          </Button>
+        </div>
         <div className="grid grid-cols-2 gap-2 border-b border-border/60 px-3 py-2 text-center sm:grid-cols-4">
           <div>
             <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{localize('Total trades')}</p>
@@ -297,7 +327,7 @@ export function DigitMatchScanner({
             </p>
           </div>
         </div>
-        <div className="max-h-48 divide-y divide-border/60 overflow-y-auto">
+        <div className="max-h-48 divide-y divide-border/60 overflow-y-auto scroll-smooth">
           {matchTrades.slice(0, 5).map((trade) => (
             <div key={trade.contractId} className="flex items-center justify-between gap-2 px-3 py-2 text-[11px]">
               <span className="min-w-0 truncate text-muted-foreground">
@@ -331,7 +361,7 @@ export function DigitMatchScanner({
       )}
 
       <p className="mt-3 text-[10px] leading-relaxed text-muted-foreground">
-        {localize('Recent digit frequencies are historical, not predictive guarantees. Buy all five to place one contract on each top digit.')}
+        {localize('Recent digit frequencies are historical, not predictive guarantees.')}
       </p>
     </section>
   );

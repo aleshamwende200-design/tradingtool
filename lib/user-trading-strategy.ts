@@ -25,6 +25,7 @@ export interface SavedBotSettings {
   maximumStake?: string;
   duration?: number;
   recoveryEnabled?: boolean;
+  recoveryMultiplier?: string;
   takeProfit?: string;
   stopLoss?: string;
 }

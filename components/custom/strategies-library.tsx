@@ -23,7 +23,7 @@ const STRATEGY_TEMPLATES: StrategyTemplate[] = [
     category: 'High / low',
     contract: 'Over 0',
     entry: '2 consecutive 0 digits',
-    summary: 'Wait for two consecutive losing digits for Over 0 before scanning for the next entry.',
+    summary: 'Wait for two consecutive losses, then require the quote to clear the scanner’s break-even check.',
     description: 'over 0 after 2 consecutive losing digits',
   },
   {
@@ -32,7 +32,7 @@ const STRATEGY_TEMPLATES: StrategyTemplate[] = [
     category: 'High / low',
     contract: 'Over 1',
     entry: '2 consecutive digits from 0 to 1',
-    summary: 'Wait for two consecutive losing digits for Over 1 before scanning for the next entry.',
+    summary: 'Wait for two consecutive losses, then require the quote to clear the scanner’s break-even check.',
     description: 'over 1 after 2 consecutive losing digits',
   },
   {
@@ -41,7 +41,7 @@ const STRATEGY_TEMPLATES: StrategyTemplate[] = [
     category: 'High / low',
     contract: 'Over 2',
     entry: '2 consecutive digits from 0 to 2',
-    summary: 'Wait for two consecutive losing digits for Over 2 before scanning for the next entry.',
+    summary: 'Wait for two consecutive losses, then require the quote to clear the scanner’s break-even check.',
     description: 'over 2 after 2 consecutive losing digits',
   },
   {
@@ -50,7 +50,7 @@ const STRATEGY_TEMPLATES: StrategyTemplate[] = [
     category: 'High / low',
     contract: 'Under 9',
     entry: '2 consecutive 9 digits',
-    summary: 'Wait for two consecutive losing digits for Under 9 before scanning for the next entry.',
+    summary: 'Wait for two consecutive losses, then require the quote to clear the scanner’s break-even check.',
     description: 'under 9 after 2 consecutive losing digits',
   },
   {
@@ -59,7 +59,7 @@ const STRATEGY_TEMPLATES: StrategyTemplate[] = [
     category: 'High / low',
     contract: 'Under 8',
     entry: '2 consecutive digits from 8 to 9',
-    summary: 'Wait for two consecutive losing digits for Under 8 before scanning for the next entry.',
+    summary: 'Wait for two consecutive losses, then require the quote to clear the scanner’s break-even check.',
     description: 'under 8 after 2 consecutive losing digits',
   },
   {
@@ -68,7 +68,7 @@ const STRATEGY_TEMPLATES: StrategyTemplate[] = [
     category: 'High / low',
     contract: 'Under 7',
     entry: '2 consecutive digits from 7 to 9',
-    summary: 'Wait for two consecutive losing digits for Under 7 before scanning for the next entry.',
+    summary: 'Wait for two consecutive losses, then require the quote to clear the scanner’s break-even check.',
     description: 'under 7 after 2 consecutive losing digits',
   },
   {
@@ -77,7 +77,7 @@ const STRATEGY_TEMPLATES: StrategyTemplate[] = [
     category: 'Parity',
     contract: 'Even',
     entry: '2 consecutive odd digits',
-    summary: 'Wait for two consecutive losing digits for Even before scanning for the next entry.',
+    summary: 'Wait for two consecutive losses, then require the quote to clear the scanner’s break-even check.',
     description: 'even after 2 consecutive losing digits',
   },
   {
@@ -86,7 +86,7 @@ const STRATEGY_TEMPLATES: StrategyTemplate[] = [
     category: 'Parity',
     contract: 'Odd',
     entry: '2 consecutive even digits',
-    summary: 'Wait for two consecutive losing digits for Odd before scanning for the next entry.',
+    summary: 'Wait for two consecutive losses, then require the quote to clear the scanner’s break-even check.',
     description: 'odd after 2 consecutive losing digits',
   },
   {
@@ -95,7 +95,7 @@ const STRATEGY_TEMPLATES: StrategyTemplate[] = [
     category: 'Single digit',
     contract: 'Differs from 5',
     entry: '2 consecutive 5 digits',
-    summary: 'Use 5 as the differs barrier and wait for two consecutive losses before scanning for entry.',
+    summary: 'Use 5 as the barrier, then require two consecutive losses and a quote that clears break-even.',
     description: 'differs from 5 after 2 consecutive losing digits',
   },
 ];
@@ -174,9 +174,6 @@ export function StrategiesLibrary({
           <h1 id="strategies-heading" className="text-xl font-bold tracking-tight text-foreground sm:text-2xl">
             {localize('Strategies')}
           </h1>
-          <p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted-foreground sm:text-sm">
-            {localize('Choose a starting rule, customize it in Bots, and save it as a bot.')}
-          </p>
         </div>
         <Button
           type="button"
@@ -201,9 +198,6 @@ export function StrategiesLibrary({
             <h2 id="strategy-prompt-heading" className="text-sm font-bold text-foreground">
               {localize('Describe the bot you want')}
             </h2>
-            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-              {localize('Review your prompt before saving. The exact prompt is saved as the bot strategy and shown in the Bots tab.')}
-            </p>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
@@ -242,9 +236,6 @@ export function StrategiesLibrary({
                 maxLength={500}
                 className="w-full resize-y rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
               />
-              <p className="text-[11px] leading-relaxed text-muted-foreground">
-                {localize('Use a digit contract with an entry condition such as a specific digit, sequence, parity/range run, or consecutive losing digits for that contract.')}
-              </p>
             </div>
           </div>
 
@@ -363,7 +354,7 @@ export function StrategiesLibrary({
           {localize('{{count}} strategies', { count: visibleStrategies.length })}
         </p>
         <p className="hidden text-[11px] text-muted-foreground sm:block">
-          {localize('Templates are starting points, not performance guarantees.')}
+          {localize('Templates do not guarantee results. Review risk before trading.')}
         </p>
       </div>
 
@@ -428,9 +419,6 @@ export function StrategiesLibrary({
       ) : (
         <div className="mt-3 rounded-xl border border-dashed border-border px-4 py-12 text-center">
           <p className="text-sm font-semibold text-foreground">{localize('No strategies found.')}</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {localize('Try a different search or category.')}
-          </p>
           <Button
             type="button"
             variant="link"
@@ -446,7 +434,7 @@ export function StrategiesLibrary({
       )}
 
       <p className="mt-5 text-[11px] leading-relaxed text-muted-foreground sm:hidden">
-        {localize('Templates are starting points, not performance guarantees. Review your market and risk settings before saving or running a bot.')}
+        {localize('Templates do not guarantee results. Review risk before trading.')}
       </p>
     </section>
   );

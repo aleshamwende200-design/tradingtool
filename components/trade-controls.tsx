@@ -174,6 +174,12 @@ export function TradeControls({
   }, [buyResult, autoTradingStatus, onClearBuyResult, localize, locale]);
 
   const isAutoTrading = autoTradingStatus !== 'idle';
+  const parsedDuration = Number(durationDraft);
+  const isDurationValid = durationDraft.trim() !== '' &&
+    Number.isInteger(parsedDuration) &&
+    parsedDuration >= durationLimits.min &&
+    parsedDuration <= durationLimits.max;
+  const isStakeValid = stake.trim() !== '' && Number.isFinite(Number(stake)) && Number(stake) > 0;
   const predictionBarrier = getContractBarrier(contractMode, selectedDigit);
   const showPredictionDigit = showDigitInPrediction(contractMode) && predictionBarrier !== undefined;
   const awaitingDiffersDigit = contractMode === 'DIGITDIFF' && predictionBarrier === undefined;
@@ -226,12 +232,7 @@ export function TradeControls({
               }
             }}
             onBlur={() => {
-              const parsed = Number(durationDraft);
-              const value = durationDraft.trim() !== '' && Number.isInteger(parsed)
-                ? Math.min(durationLimits.max, Math.max(durationLimits.min, parsed))
-                : duration;
-              setDurationDraft(String(value));
-              onDurationChange(value);
+              if (isDurationValid) onDurationChange(parsedDuration);
             }}
             onKeyDown={e => {
               if (['e', 'E', '+', '-'].includes(e.key)) e.preventDefault();
@@ -297,7 +298,9 @@ export function TradeControls({
       >
         <Button
           className="h-11 w-full rounded-lg bg-[rgb(var(--buy-background))] px-6 font-bold text-[rgb(var(--buy-foreground))] shadow-[0_0_22px_rgb(0_195_144/0.18)] hover:brightness-110 sm:h-12 sm:px-8"
-          disabled={isAutoTrading ? autoTradingStatus === 'stopping' : !isConnected || isBuying}
+          disabled={isAutoTrading
+            ? autoTradingStatus === 'stopping'
+            : !isConnected || isBuying || !isStakeValid || !isDurationValid}
           onClick={onBuy}
         >
           {buyButtonLabel}

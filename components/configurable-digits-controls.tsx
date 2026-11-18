@@ -130,6 +130,7 @@ export interface ConfigurableBuyButtonProps {
   onBuy: () => void;
   isBuying: boolean;
   autoTradingStatus?: 'idle' | 'scanning' | 'running' | 'stopping';
+  isInputValid?: boolean;
 }
 
 export function ConfigurableBuyButton({
@@ -138,11 +139,14 @@ export function ConfigurableBuyButton({
   onBuy,
   isBuying,
   autoTradingStatus = 'idle',
+  isInputValid = true,
 }: ConfigurableBuyButtonProps) {
   const { localize } = useAppTranslations();
 
   const isAutoTrading = autoTradingStatus !== 'idle';
-  const disabled = isAutoTrading ? autoTradingStatus === 'stopping' : !isConnected || isBuying;
+  const disabled = isAutoTrading
+    ? autoTradingStatus === 'stopping'
+    : !isConnected || isBuying || !isInputValid;
   const label = autoTradingStatus === 'stopping'
     ? localize('Stopping...')
     : autoTradingStatus === 'scanning'
@@ -284,6 +288,12 @@ export function ConfigurableDigitsControls(props: ConfigurableDigitsControlsProp
   const { localize, locale } = useAppTranslations();
   const isAutoTrading = autoTradingStatus !== 'idle';
   const [durationDraft, setDurationDraft] = useState(String(duration));
+  const parsedDuration = Number(durationDraft);
+  const isDurationValid = durationDraft.trim() !== '' &&
+    Number.isInteger(parsedDuration) &&
+    parsedDuration >= durationLimits.min &&
+    parsedDuration <= durationLimits.max;
+  const isStakeValid = stake.trim() !== '' && Number.isFinite(Number(stake)) && Number(stake) > 0;
   const blockLabels = getBlockLabels(localize);
   const digitTradeTypeOptions = getDigitTradeTypeOptions(localize);
   const contractModeOptions = getContractModeOptions(localize);
@@ -778,12 +788,7 @@ export function ConfigurableDigitsControls(props: ConfigurableDigitsControlsProp
       }
     };
     const commitDurationDraft = () => {
-      const parsed = Number(durationDraft);
-      const value = durationDraft.trim() !== '' && Number.isInteger(parsed)
-        ? clamp(parsed)
-        : duration;
-      setDurationDraft(String(value));
-      onDurationChange(value);
+      if (isDurationValid) onDurationChange(parsedDuration);
     };
     const durationInput = (extraClass?: string) => (
       <Input
@@ -979,6 +984,7 @@ export function ConfigurableDigitsControls(props: ConfigurableDigitsControlsProp
         onBuy={onBuy}
         isBuying={isBuying}
         autoTradingStatus={props.autoTradingStatus}
+        isInputValid={isStakeValid && isDurationValid}
       />
     );
 

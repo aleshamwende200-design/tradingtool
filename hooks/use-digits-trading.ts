@@ -36,6 +36,7 @@ import { evaluateUserTradingStrategy } from '../lib/user-trading-strategy';
 import type { SavedBotSettings, UserTradingStrategy } from '../lib/user-trading-strategy';
 import { getNextMartingaleStake, initialMartingaleProgress } from '../lib/martingale';
 import type { MartingaleMode } from '../lib/martingale';
+import { TRADING_DEFAULTS } from '../lib/trading-defaults';
 import { useAppTranslations } from '@/components/custom/i18n-provider';
 import type { ContractMode, TradeType, DigitStats, OpenPosition, ClosedPosition } from '../lib/types';
 
@@ -57,7 +58,7 @@ export interface AutoTradingScanProgress {
   selectedContractMode: Exclude<ContractMode, 'DIGITMATCH'> | null;
   estimatedWinRate: number | null;
   prediction: AutoTradingPrediction | null;
-  skippedNoReturnMarkets: number;
+  skippedUnfavorableMarkets: number;
 }
 
 export interface AutoTradingPrediction {
@@ -478,15 +479,15 @@ export function useDigitsTrading({
   const [tradeType, setTradeTypeRaw] = useState<TradeType>('matches-differs');
   const [contractMode, setContractModeRaw] = useState<ContractMode>('DIGITDIFF');
   const [selectedDigit, setSelectedDigit] = useState<number | null>(null);
-  const [stake, setStake] = useState<string>('2.5');
-  const [duration, setDuration] = useState<number>(2);
-  const [takeProfit, setTakeProfit] = useState('5');
-  const [stopLoss, setStopLoss] = useState('25');
+  const [stake, setStake] = useState<string>(TRADING_DEFAULTS.stake);
+  const [duration, setDuration] = useState<number>(TRADING_DEFAULTS.duration);
+  const [takeProfit, setTakeProfit] = useState<string>(TRADING_DEFAULTS.takeProfit);
+  const [stopLoss, setStopLoss] = useState<string>(TRADING_DEFAULTS.stopLoss);
   const [martingaleMode, setMartingaleMode] = useState<MartingaleMode>('classic');
   const [martingaleValues, setMartingaleValues] = useState<Record<MartingaleMode, string>>({
-    classic: '1.85',
-    dynamic: '1.85',
-    'super-hybrid': '1.85',
+    classic: TRADING_DEFAULTS.recoveryMultiplier,
+    dynamic: TRADING_DEFAULTS.recoveryMultiplier,
+    'super-hybrid': TRADING_DEFAULTS.recoveryMultiplier,
   });
   const [thresholdResult, setThresholdResult] = useState<AutoTradingThresholdResult | null>(null);
   const [autoTradingStatus, setAutoTradingStatus] = useState<AutoTradingStatus>('idle');
@@ -737,7 +738,7 @@ export function useDigitsTrading({
           currency,
           duration: tradeDuration,
           duration_unit: 't',
-          symbol,
+          underlying_symbol: symbol,
           barrier: digit,
         });
         const quote = response.proposal;
@@ -888,7 +889,7 @@ export function useDigitsTrading({
     const tradeDuration = settings.duration ?? duration;
     const multiplier = settings.recoveryEnabled === false
       ? 1
-      : Number(martingaleValues[martingaleMode]);
+      : Number(settings.recoveryMultiplier ?? martingaleValues[martingaleMode]);
     try {
       takeProfitTarget = parseTarget(settings.takeProfit ?? takeProfit, localize('Take profit'));
       stopLossTarget = parseTarget(settings.stopLoss ?? stopLoss, localize('Stop loss'));
@@ -942,7 +943,7 @@ export function useDigitsTrading({
     let stopReason = '';
     let reachedThreshold: AutoTradingThresholdResult | null = null;
     const rejectedCandidates = new Map<string, number>();
-    const skippedNoReturnCandidates = new Set<string>();
+    const skippedUnfavorableCandidates = new Set<string>();
     let scanNumber = 0;
 
     const scanForMarket = async (): Promise<MarketScanCandidate | null> => {
@@ -975,7 +976,7 @@ export function useDigitsTrading({
           selectedContractMode: null,
           estimatedWinRate: null,
           prediction: null,
-          skippedNoReturnMarkets: skippedNoReturnCandidates.size,
+          skippedUnfavorableMarkets: skippedUnfavorableCandidates.size,
         });
 
         const candidate = await scanMarkets(
@@ -1068,19 +1069,19 @@ export function useDigitsTrading({
       setAutoTradingStatus('running');
     };
 
-    const skipNoReturnCandidate = (candidate: MarketScanCandidate) => {
+    const skipUnfavorableCandidate = (candidate: MarketScanCandidate) => {
       const candidateKey = getScanCandidateKey(
         candidate.symbol.underlying_symbol,
         candidate.contractMode
       );
       rejectedCandidates.set(candidateKey, Date.now() + 5000);
-      skippedNoReturnCandidates.add(candidateKey);
+      skippedUnfavorableCandidates.add(candidateKey);
 
       setAutoTradingScanProgress((progress) =>
         progress
           ? {
               ...progress,
-              skippedNoReturnMarkets: skippedNoReturnCandidates.size,
+              skippedUnfavorableMarkets: skippedUnfavorableCandidates.size,
             }
           : progress
       );
@@ -1122,7 +1123,7 @@ export function useDigitsTrading({
         } catch (error) {
           if (session.stopRequested) break;
           if (isNoReturnContractError(error)) {
-            skipNoReturnCandidate(candidate);
+            skipUnfavorableCandidate(candidate);
             continue;
           }
           if (!connectionDropped && tradingWs.isConnected) throw error;
@@ -1145,7 +1146,14 @@ export function useDigitsTrading({
           throw new Error(localize('The proposal did not include a valid potential payout.'));
         }
         if (quote.payout <= quote.ask_price) {
-          skipNoReturnCandidate(candidate);
+          skipUnfavorableCandidate(candidate);
+          continue;
+        }
+        if (
+          candidate.triggerMatches === 0 ||
+          candidate.estimatedWinRate * quote.payout <= quote.ask_price
+        ) {
+          skipUnfavorableCandidate(candidate);
           continue;
         }
 
@@ -1182,7 +1190,7 @@ export function useDigitsTrading({
         }
         if (!purchase) {
           if (isNoReturnContractError(purchaseError)) {
-            skipNoReturnCandidate(candidate);
+            skipUnfavorableCandidate(candidate);
             continue;
           }
           if (connectionDroppedDuringPurchase || !tradingWs.isConnected) {

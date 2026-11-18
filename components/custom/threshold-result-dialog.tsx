@@ -5,7 +5,6 @@ import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -53,25 +52,14 @@ export function ThresholdResultDialog({ result, onClose }: ThresholdResultDialog
                 </span>{' '}
                 {localize('Reached!')}
               </DialogTitle>
-              <DialogDescription className="text-sm leading-relaxed text-muted-foreground">
-                {isTakeProfit
-                  ? localize('Your trading session ended after reaching its profit target.')
-                  : localize('Your trading session ended after reaching its loss limit.')}
-              </DialogDescription>
             </DialogHeader>
 
-            <div className="my-5 flex items-center justify-center gap-2 text-xs font-semibold text-primary">
-              {isTakeProfit ? (
-                <Trophy className="h-4 w-4" />
-              ) : (
+            {!isTakeProfit && (
+              <div className="my-5 flex items-center justify-center gap-2 text-xs font-semibold text-primary">
                 <Flag className="h-4 w-4" />
-              )}
-              <span>
-                {isTakeProfit
-                  ? localize('Well done! Your session is complete.')
-                  : localize('Review your risk settings before trading again.')}
-              </span>
-            </div>
+                <span>{localize('Review your risk settings before trading again.')}</span>
+              </div>
+            )}
 
             {isTakeProfit && (
               <div aria-hidden="true" className="take-profit-celebration">

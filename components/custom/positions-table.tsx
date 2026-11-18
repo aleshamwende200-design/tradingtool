@@ -126,7 +126,7 @@ export function PositionsTable({
       </div>
 
       {/* Desktop: table */}
-      <div className="hidden lg:block rounded-lg border border-border overflow-hidden">
+      <div className="hidden max-h-[520px] overflow-y-auto scroll-smooth rounded-lg border border-border lg:block">
         <Table>
           <TableHeader>
             <TableRow>
@@ -175,7 +175,7 @@ export function PositionsTable({
       </div>
 
       {/* Mobile: cards */}
-      <div className="lg:hidden flex flex-col gap-3">
+      <div className="flex max-h-[520px] flex-col gap-3 overflow-y-auto scroll-smooth lg:hidden">
         {visibleOpen.map((pos) => (
           <OpenPositionCard
             key={`open-card-${pos.contract_id}`}

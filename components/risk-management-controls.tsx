@@ -15,7 +15,7 @@ import {
 import type { MartingaleMode } from '@/lib/martingale';
 
 const MARTINGALE_CHAIN_DESCRIPTION =
-  "After each loss, multiply the previous stake by this mode's multiplier. Continue the chain after consecutive losses; a winning contract resets the stake to the original amount.";
+  "Multiplies the stake after each loss; a win resets it to the original stake.";
 
 const MARTINGALE_MODES: {
   value: MartingaleMode;
@@ -211,7 +211,7 @@ export function RiskManagementControls({
       )}
 
       <p className="text-[11px] leading-relaxed text-muted-foreground">
-        <Localize i18n_default_text="Set at least one profit or loss target. The bot follows the reviewed strategy, checks its recent conditional history, and skips quotes with non-positive estimated value. Short-term tick patterns are noisy and cannot guarantee profits; martingale can increase losses." />
+        <Localize i18n_default_text="Set at least one profit or loss target. Trading can lose money; martingale can increase losses." />
       </p>
     </div>
   );

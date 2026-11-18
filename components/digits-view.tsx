@@ -28,6 +28,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useIsMobile } from '@/hooks/use-is-mobile';
 import { useAppTranslations } from '@/components/custom/i18n-provider';
 import { formatAmount } from '@/lib/locale-format';
+import { TRADING_DEFAULTS } from '@/lib/trading-defaults';
 import { cn } from '@/lib/utils';
 import { CurrentTickDisplay } from './current-tick-display';
 import { DigitMatchScanner } from './digit-match-scanner';
@@ -504,6 +505,7 @@ export function DigitsView({
   // regression.
   const inFlowFooter = !!appConfig && isMobile;
   const { localize, locale } = useAppTranslations();
+  const [matchesHubStake, setMatchesHubStake] = useState<string>(TRADING_DEFAULTS.matchesHubStake);
   const digitTradeTypeOptions = getDigitTradeTypeOptions(localize);
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -646,6 +648,7 @@ export function DigitsView({
     onStopLossChange: setStopLoss,
     martingaleMode,
     martingaleMultiplier: martingaleValues[martingaleMode],
+    onMartingaleMultiplierChange: (value: string) => setMartingaleValue(martingaleMode, value),
     canSave: savedBotStore.isLoaded && savedBotStore.canPersist,
     storageError: savedBotStore.storageError,
     disabled: !!editMode || autoTradingStatus !== 'idle',
@@ -883,14 +886,15 @@ export function DigitsView({
               isBotActive={autoTradingStatus !== 'idle'}
               isAuthenticated={authState === 'authenticated'}
               isBuying={isBuying || isMatchTradeInProgress}
-              stake={stake}
+              stake={matchesHubStake}
               currency={activeAccount?.currency ?? 'USD'}
               duration={duration}
               durationLimits={durationLimits}
               transactions={transactions}
-              onStakeChange={setStake}
+              onStakeChange={setMatchesHubStake}
               onDurationChange={setDuration}
               onRequestLogin={handleMatchTradeLogin}
+              onReset={resetSessionHistory}
               onBuyMatchDigits={buyMatchDigits}
               onStart={startMatchScanner}
               onStop={stopMatchScanner}

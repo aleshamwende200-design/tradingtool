@@ -59,7 +59,7 @@ function MetricCard({
   icon: ReactNode;
   label: string;
   value: string;
-  detail: string;
+  detail?: string;
   valueClassName?: string;
 }) {
   return (
@@ -73,7 +73,7 @@ function MetricCard({
       <p className={cn('mt-3 truncate text-xl font-bold tabular-nums text-foreground sm:text-2xl', valueClassName)}>
         {value}
       </p>
-      <p className="mt-1 truncate text-[11px] text-muted-foreground">{detail}</p>
+      {detail && <p className="mt-1 truncate text-[11px] text-muted-foreground">{detail}</p>}
     </article>
   );
 }
@@ -172,9 +172,6 @@ export function HomeDashboard({
               {activeAccount?.currency ? ` · ${activeAccount.currency}` : ''}
             </span>
           </div>
-          <p className="truncate text-xs text-muted-foreground">
-            {localize('A live view of your market, bots, and session results.')}
-          </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <Button
@@ -210,11 +207,6 @@ export function HomeDashboard({
                 ? localize('Live market feed connected')
                 : localize('Waiting for live market feed')}
             </p>
-            <p className="truncate text-[11px] text-muted-foreground">
-              {isAuthenticated
-                ? localize('Your saved bots only trade when you start them.')
-                : localize('Log in to run bots; your saved strategies stay in this browser.')}
-            </p>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2 text-[11px] text-muted-foreground">
@@ -239,7 +231,6 @@ export function HomeDashboard({
           icon={<Activity className="h-4 w-4" />}
           label={localize('Session P/L')}
           value={`${formatSignedAmount(metrics.sessionProfit, locale)} ${currency}`}
-          detail={localize('From this account session')}
           valueClassName={metrics.sessionProfit > 0
             ? 'text-emerald-500'
             : metrics.sessionProfit < 0
@@ -267,9 +258,6 @@ export function HomeDashboard({
           <div className="flex items-start justify-between gap-3">
             <div>
               <h3 className="text-sm font-bold text-foreground">{localize('Market scanner')}</h3>
-              <p className="text-[11px] text-muted-foreground">
-                {localize('Live scanner for your active bot')}
-              </p>
             </div>
             <span className={cn(
               'shrink-0 rounded-md border px-2 py-1 text-[10px]',
@@ -302,13 +290,6 @@ export function HomeDashboard({
                       ? localize('Trade in progress')
                       : localize('Connecting live feeds')}
                 </p>
-                <p className="mt-1 max-w-sm text-[10px] text-muted-foreground">
-                  {autoTradingTradeCount > 0
-                    ? localize('The next fresh market scan starts after the current trade settles.')
-                    : autoTradingMarket
-                      ? localize('Current market: {{market}}', { market: autoTradingMarket })
-                      : localize('Connecting to open continuous-index markets.')}
-                </p>
                 <Button
                   type="button"
                   size="sm"
@@ -328,9 +309,6 @@ export function HomeDashboard({
                 <p className="mt-3 text-xs font-medium text-foreground">
                   {localize('Scanner is ready')}
                 </p>
-                <p className="mt-1 max-w-sm text-[10px] text-muted-foreground">
-                  {localize('Run a saved bot to scan live ticks across open markets using its entry rule.')}
-                </p>
                 <Button
                   type="button"
                   size="sm"
@@ -349,7 +327,6 @@ export function HomeDashboard({
           <div className="flex items-center justify-between gap-2">
             <div>
               <h3 className="text-sm font-bold text-foreground">{localize('Recent trades')}</h3>
-              <p className="text-[11px] text-muted-foreground">{localize('Latest account activity')}</p>
             </div>
             <div className="flex shrink-0 items-center gap-1">
               <Button
@@ -457,11 +434,6 @@ export function HomeDashboard({
               <p className="mt-2 text-xs font-medium text-foreground">
                 {localize('No trades to show yet.')}
               </p>
-              <p className="mt-1 text-[10px] text-muted-foreground">
-                {isAuthenticated
-                  ? localize('Your trades will appear here after you start a bot or place a trade.')
-                  : localize('Log in to view your account activity.')}
-              </p>
             </div>
           )}
         </section>
@@ -529,9 +501,6 @@ export function HomeDashboard({
               </span>
               <div className="min-w-0">
                 <p className="text-xs font-semibold text-foreground">{localize('No bots saved yet.')}</p>
-                <p className="text-[10px] text-muted-foreground">
-                  {localize('Build a strategy to keep it ready in your Bots tab.')}
-                </p>
               </div>
             </div>
             <Button

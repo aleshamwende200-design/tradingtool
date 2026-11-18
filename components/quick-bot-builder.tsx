@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAppTranslations } from '@/components/custom/i18n-provider';
 import { compileUserTradingStrategy } from '@/lib/user-trading-strategy';
+import { TRADING_DEFAULTS } from '@/lib/trading-defaults';
 import type { SavedBotSettings } from '@/lib/user-trading-strategy';
 import type { ContractMode } from '@/lib/types';
 import type { BotBuilderTemplate } from './strategy-builder';
@@ -17,8 +18,8 @@ type AnalysisType = 'pattern' | 'sequence';
 interface RuleCondition {
   id: number;
   kind: ConditionKind;
-  digit: number;
-  length: number;
+  digit: string;
+  length: string;
   parity: 'even' | 'odd';
   range: 'high' | 'low';
   sequence: string;
@@ -35,6 +36,7 @@ interface QuickBotBuilderProps {
   onStopLossChange: (value: string) => void;
   martingaleMode: string;
   martingaleMultiplier: string;
+  onMartingaleMultiplierChange: (value: string) => void;
   canSave: boolean;
   storageError: string | null;
   disabled?: boolean;
@@ -47,8 +49,8 @@ function createCondition(id: number, kind: ConditionKind = 'parity-run'): RuleCo
   return {
     id,
     kind,
-    digit: 3,
-    length: 2,
+    digit: '3',
+    length: '2',
     parity: 'even',
     range: 'high',
     sequence: '1, 2, 3',
@@ -72,7 +74,7 @@ function conditionDescription(condition: RuleCondition): string {
 
 function contractDescription(
   contractMode: Exclude<ContractMode, 'DIGITMATCH'>,
-  barrier: number
+  barrier: string
 ): string {
   switch (contractMode) {
     case 'DIGITDIFF':
@@ -105,6 +107,7 @@ export function QuickBotBuilder({
   onStopLossChange,
   martingaleMode,
   martingaleMultiplier,
+  onMartingaleMultiplierChange,
   canSave,
   storageError,
   disabled = false,
@@ -119,11 +122,16 @@ export function QuickBotBuilder({
   const [nextConditionId, setNextConditionId] = useState(2);
   const [contractMode, setContractMode] =
     useState<Exclude<ContractMode, 'DIGITMATCH'>>('DIGITOVER');
-  const [barrier, setBarrier] = useState(1);
+  const [barrier, setBarrier] = useState('1');
+  const [durationDraft, setDurationDraft] = useState(String(duration));
   const [maximumStake, setMaximumStake] = useState('10');
   const [recoveryEnabled, setRecoveryEnabled] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedNotice, setSavedNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDurationDraft(String(duration));
+  }, [duration]);
 
   useEffect(() => {
     if (!template) return;
@@ -142,20 +150,20 @@ export function QuickBotBuilder({
       const condition = createCondition(index + 1);
       switch (trigger.kind) {
         case 'digit':
-          return { ...condition, kind: 'digit', digit: trigger.digit };
+          return { ...condition, kind: 'digit', digit: String(trigger.digit) };
         case 'parity-run':
           return {
             ...condition,
             kind: 'parity-run',
             parity: trigger.parity,
-            length: trigger.length,
+            length: String(trigger.length),
           };
         case 'range-run':
           return {
             ...condition,
             kind: 'range-run',
             range: trigger.range,
-            length: trigger.length,
+            length: String(trigger.length),
           };
         case 'sequence':
           return {
@@ -167,7 +175,7 @@ export function QuickBotBuilder({
           return {
             ...condition,
             kind: 'loss-run',
-            length: trigger.length,
+            length: String(trigger.length),
           };
       }
     });
@@ -178,7 +186,7 @@ export function QuickBotBuilder({
     setConditions(nextConditions);
     setNextConditionId(nextConditions.length + 1);
     setContractMode(result.strategy.contractMode);
-    setBarrier(result.strategy.barrier ?? 1);
+    setBarrier(String(result.strategy.barrier ?? 1));
     setSavedNotice(localize('Strategy loaded from Strategies. Edit its conditions, then save the bot.'));
     onTemplateApplied();
   }, [localize, onTemplateApplied, template]);
@@ -192,6 +200,13 @@ export function QuickBotBuilder({
     () => compileUserTradingStrategy(description),
     [description]
   );
+  const parsedDuration = Number(durationDraft);
+  const isDurationDraftValid = Number.isInteger(parsedDuration) &&
+    parsedDuration >= 1 &&
+    parsedDuration <= 200;
+  const parsedRecoveryMultiplier = Number(martingaleMultiplier);
+  const isRecoveryMultiplierValid = Number.isFinite(parsedRecoveryMultiplier) &&
+    parsedRecoveryMultiplier > 1;
 
   const updateCondition = (id: number, update: Partial<RuleCondition>) => {
     setConditions((current) => current.map((condition) =>
@@ -207,11 +222,15 @@ export function QuickBotBuilder({
     setConditions([createCondition(1)]);
     setNextConditionId(2);
     setContractMode('DIGITOVER');
-    setBarrier(1);
+    setBarrier('1');
     setMaximumStake('10');
     setRecoveryEnabled(false);
-    onStakeChange('2.5');
-    onDurationChange(2);
+    setDurationDraft(String(TRADING_DEFAULTS.duration));
+    onStakeChange(TRADING_DEFAULTS.stake);
+    onDurationChange(TRADING_DEFAULTS.duration);
+    onTakeProfitChange(TRADING_DEFAULTS.takeProfit);
+    onStopLossChange(TRADING_DEFAULTS.stopLoss);
+    onMartingaleMultiplierChange(TRADING_DEFAULTS.recoveryMultiplier);
     setSaveError(null);
     setSavedNotice(null);
   };
@@ -219,6 +238,16 @@ export function QuickBotBuilder({
   const saveQuickBot = () => {
     if (!compilation.strategy) {
       setSaveError(localize(compilation.error));
+      setSavedNotice(null);
+      return;
+    }
+    if (!isDurationDraftValid) {
+      setSaveError(localize('Duration must be between 1 and 200 ticks.'));
+      setSavedNotice(null);
+      return;
+    }
+    if (recoveryEnabled && !isRecoveryMultiplierValid) {
+      setSaveError(localize('Recovery multiplier must be greater than 1.'));
       setSavedNotice(null);
       return;
     }
@@ -252,8 +281,9 @@ export function QuickBotBuilder({
     const settings: SavedBotSettings = {
       stake,
       maximumStake,
-      duration,
+      duration: parsedDuration,
       recoveryEnabled,
+      recoveryMultiplier: martingaleMultiplier,
       takeProfit,
       stopLoss,
     };
@@ -278,9 +308,6 @@ export function QuickBotBuilder({
           <Bot className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
           <div>
             <h3 className="text-sm font-bold text-foreground">{localize('Build your trading rules')}</h3>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {localize('Create and review a digit strategy. The scanner checks every open continuous index and trades one market at a time when the saved bot rules match.')}
-            </p>
           </div>
         </div>
         <Button type="button" size="sm" variant="outline" onClick={resetDraft} disabled={disabled}>
@@ -316,9 +343,6 @@ export function QuickBotBuilder({
                 <option value="sequence">{localize('Digit sequence')}</option>
               </select>
             </div>
-            <p className="text-[10px] text-muted-foreground sm:col-span-2">
-              {localize('All open continuous index markets are checked. The bot trades one matching market at a time.')}
-            </p>
           </div>
 
           <div className="grid gap-3 rounded-lg border border-border/80 bg-card/70 p-3 sm:grid-cols-2 sm:p-4">
@@ -346,18 +370,20 @@ export function QuickBotBuilder({
                 min="1"
                 max="200"
                 step="1"
-                value={duration}
+                value={durationDraft}
                 onChange={(event) => {
-                  onDurationChange(Math.max(1, Math.min(200, Math.round(Number(event.target.value) || 1))));
+                  const value = event.target.value;
+                  setDurationDraft(value);
+                  const parsed = Number(value);
+                  if (value !== '' && Number.isInteger(parsed) && parsed >= 1 && parsed <= 200) {
+                    onDurationChange(parsed);
+                  }
                   setSaveError(null);
                   setSavedNotice(null);
                 }}
                 disabled={disabled}
               />
             </div>
-            <p className="text-[10px] text-muted-foreground sm:col-span-2">
-              {localize('These are saved with the bot and used when it starts.')}
-            </p>
           </div>
 
           <div className="space-y-3">
@@ -412,17 +438,16 @@ export function QuickBotBuilder({
                 {condition.kind === 'digit' && (
                   <div className="space-y-1.5">
                     <Label htmlFor={`quick-condition-digit-${condition.id}`}>{localize('Last digit is')}</Label>
-                    <select
+                    <Input
                       id={`quick-condition-digit-${condition.id}`}
+                      type="number"
+                      min="0"
+                      max="9"
+                      step="1"
                       value={condition.digit}
-                      onChange={(event) => updateCondition(condition.id, { digit: Number(event.target.value) })}
+                      onChange={(event) => updateCondition(condition.id, { digit: event.target.value })}
                       disabled={disabled}
-                      className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
-                    >
-                      {Array.from({ length: 10 }, (_, digit) => (
-                        <option key={digit} value={digit}>{digit}</option>
-                      ))}
-                    </select>
+                    />
                   </div>
                 )}
 
@@ -466,9 +491,7 @@ export function QuickBotBuilder({
                         max="8"
                         step="1"
                         value={condition.length}
-                        onChange={(event) => updateCondition(condition.id, {
-                          length: Math.max(1, Math.min(8, Number(event.target.value) || 1)),
-                        })}
+                        onChange={(event) => updateCondition(condition.id, { length: event.target.value })}
                         disabled={disabled}
                       />
                     </div>
@@ -487,14 +510,11 @@ export function QuickBotBuilder({
                       max="8"
                       step="1"
                       value={condition.length}
-                      onChange={(event) => updateCondition(
-                        condition.id,
-                        { length: Math.max(1, Math.min(8, Math.round(Number(event.target.value) || 1))) }
-                      )}
+                      onChange={(event) => updateCondition(condition.id, { length: event.target.value })}
                       disabled={disabled}
                     />
                     <p className="text-[10px] leading-relaxed text-muted-foreground">
-                      {localize('A losing digit is determined by this bot’s selected contract and barrier.')}
+                      {localize('Losses use this bot’s contract and barrier.')}
                     </p>
                   </div>
                 )}
@@ -549,7 +569,12 @@ export function QuickBotBuilder({
                     onChange={(event) => {
                       const nextMode = event.target.value as Exclude<ContractMode, 'DIGITMATCH'>;
                       setContractMode(nextMode);
-                      setBarrier((current) => normalizeBarrier(nextMode, current));
+                      setBarrier((current) => {
+                        const parsed = Number(current);
+                        return current.trim() === '' || !Number.isFinite(parsed)
+                          ? current
+                          : String(normalizeBarrier(nextMode, parsed));
+                      });
                       setSaveError(null);
                       setSavedNotice(null);
                     }}
@@ -574,7 +599,7 @@ export function QuickBotBuilder({
                       step="1"
                       value={barrier}
                       onChange={(event) => {
-                        setBarrier(normalizeBarrier(contractMode, Number(event.target.value) || 0));
+                        setBarrier(event.target.value);
                         setSaveError(null);
                         setSavedNotice(null);
                       }}
@@ -653,9 +678,6 @@ export function QuickBotBuilder({
                 disabled={disabled}
               />
             </div>
-            <p className="text-[10px] leading-relaxed text-muted-foreground">
-              {localize('The engine applies profit/loss limits and the configured recovery multiplier automatically.')}
-            </p>
           </section>
 
           <section className="space-y-3 rounded-lg border border-border/80 bg-card/70 p-3 sm:p-4">
@@ -676,13 +698,26 @@ export function QuickBotBuilder({
               <span>
                 <span className="font-medium">{localize('Use recovery multiplier')}</span>
                 <span className="mt-1 block text-[10px] leading-relaxed text-muted-foreground">
-                  {localize('When enabled, the engine uses the configured recovery multiplier after a loss. Recovery can increase losses.')}
+                  {localize('Applied after a loss; can increase losses.')}
                 </span>
               </span>
             </label>
-            <p className="text-[10px] text-muted-foreground">
-              {localize('Current multiplier: {{multiplier}}×', { multiplier: martingaleMultiplier })}
-            </p>
+            <div className="space-y-1.5">
+              <Label htmlFor="quick-bot-recovery-multiplier">{localize('Recovery multiplier')}</Label>
+              <Input
+                id="quick-bot-recovery-multiplier"
+                type="number"
+                min="1"
+                step="0.01"
+                value={martingaleMultiplier}
+                onChange={(event) => {
+                  onMartingaleMultiplierChange(event.target.value);
+                  setSaveError(null);
+                  setSavedNotice(null);
+                }}
+                disabled={disabled}
+              />
+            </div>
           </section>
 
           <section className="space-y-2 rounded-lg border border-border/80 bg-card/70 p-3 sm:p-4">
@@ -725,7 +760,8 @@ export function QuickBotBuilder({
           type="button"
           className="w-full sm:w-auto"
           onClick={saveQuickBot}
-          disabled={disabled || !canSave || !name.trim() || !compilation.strategy}
+          disabled={disabled || !canSave || !name.trim() || !compilation.strategy ||
+            !isDurationDraftValid || (recoveryEnabled && !isRecoveryMultiplierValid)}
         >
           <Plus />
           {localize('Create Quick Bot')}

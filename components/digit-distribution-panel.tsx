@@ -17,6 +17,23 @@ export function DigitDistributionPanel({
   topDigits,
 }: DigitDistributionPanelProps) {
   const { localize, locale } = useAppTranslations();
+  const hasPercentages = digitStats.totalTicks > 0 && digitStats.percentages.length > 0;
+  const highestPercentage = hasPercentages ? Math.max(...digitStats.percentages) : null;
+  const lowestPercentage = hasPercentages ? Math.min(...digitStats.percentages) : null;
+  const highestDigits = highestPercentage === null
+    ? []
+    : digitStats.percentages.flatMap((percentage, digit) =>
+        percentage === highestPercentage ? [digit] : []
+      );
+  const lowestDigits = lowestPercentage === null
+    ? []
+    : digitStats.percentages.flatMap((percentage, digit) =>
+        percentage === lowestPercentage ? [digit] : []
+      );
+  const hasDistinctExtremes =
+    highestPercentage !== null &&
+    lowestPercentage !== null &&
+    highestPercentage !== lowestPercentage;
 
   return (
     <section
@@ -43,21 +60,28 @@ export function DigitDistributionPanel({
               : localize('Waiting for live ticks')}
           </p>
         </div>
-        <div className="flex flex-wrap gap-2 text-[10px] font-medium">
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-sky-500/30 bg-sky-500/10 px-2 py-1 text-sky-500">
-            <span aria-hidden="true" className="h-2 w-2 rounded-full bg-sky-500" />
-            {localize('Low digits 0–4')}
-          </span>
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-orange-500">
-            <span aria-hidden="true" className="h-2 w-2 rounded-full bg-orange-500" />
-            {localize('High digits 5–9')}
-          </span>
-        </div>
+        {highestPercentage !== null && lowestPercentage !== null && (
+          <div className="flex flex-wrap gap-2 text-[10px] font-medium">
+            <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-emerald-500">
+              {localize('Highest: {{digits}} · {{percentage}}', {
+                digits: highestDigits.join(', '),
+                percentage: formatPercent(highestPercentage, 1, locale),
+              })}
+            </span>
+            <span className="rounded-full border border-rose-500/30 bg-rose-500/10 px-2 py-1 text-rose-500">
+              {localize('Lowest: {{digits}} · {{percentage}}', {
+                digits: lowestDigits.join(', '),
+                percentage: formatPercent(lowestPercentage, 1, locale),
+              })}
+            </span>
+          </div>
+        )}
       </header>
 
       <div className="mt-3 grid grid-cols-5 gap-2 sm:grid-cols-10">
         {digitStats.percentages.map((percentage, digit) => {
-          const isHighDigit = digit >= 5;
+          const isHighestDigit = percentage === highestPercentage;
+          const isLowestDigit = percentage === lowestPercentage;
           const isTopScannedDigit = topDigits.includes(digit);
 
           return (
@@ -69,16 +93,18 @@ export function DigitDistributionPanel({
                 percentage: formatPercent(percentage, 1, locale),
               })}
               className={cn(
-                'rounded-lg border px-1.5 py-2 text-center',
-                isHighDigit
-                  ? 'border-orange-500/30 bg-orange-500/10'
-                  : 'border-sky-500/30 bg-sky-500/10',
+                'rounded-lg border border-border/80 bg-background/70 px-1.5 py-2 text-center',
+                hasDistinctExtremes && isHighestDigit &&
+                  'border-emerald-500/50 bg-emerald-500/10',
+                hasDistinctExtremes && isLowestDigit &&
+                  'border-rose-500/50 bg-rose-500/10',
                 isTopScannedDigit && 'ring-1 ring-foreground/40'
               )}
             >
               <p className={cn(
                 'text-sm font-bold tabular-nums',
-                isHighDigit ? 'text-orange-500' : 'text-sky-500'
+                hasDistinctExtremes && isHighestDigit && 'text-emerald-500',
+                hasDistinctExtremes && isLowestDigit && 'text-rose-500'
               )}>
                 {digit}
               </p>

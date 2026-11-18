@@ -498,9 +498,6 @@ export function Header({
               <DialogPrimitive.Title className="text-lg font-semibold leading-none tracking-tight">
                 <Localize i18n_default_text="Settings" />
               </DialogPrimitive.Title>
-              <DialogPrimitive.Description className="text-sm text-muted-foreground">
-                <Localize i18n_default_text="Manage your appearance and language preferences." />
-              </DialogPrimitive.Description>
             </div>
             <DialogPrimitive.Close asChild>
               <Button variant="ghost" size="icon" className="hidden shrink-0 lg:inline-flex" aria-label={localize('Close settings')}>

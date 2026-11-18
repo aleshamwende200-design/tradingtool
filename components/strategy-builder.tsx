@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { useAppTranslations } from '@/components/custom/i18n-provider';
 import { compileUserTradingStrategy } from '@/lib/user-trading-strategy';
 import type { SavedBotSettings, StrategyCompilation } from '@/lib/user-trading-strategy';
+import { TRADING_DEFAULTS } from '@/lib/trading-defaults';
 
 const SAVED_BOTS_STORAGE_KEY = 'factorpulse:saved-bots:v1';
 
@@ -19,6 +20,7 @@ export interface SavedBot {
   maximumStake?: string;
   duration?: number;
   recoveryEnabled?: boolean;
+  recoveryMultiplier?: string;
   takeProfit?: string;
   stopLoss?: string;
 }
@@ -58,6 +60,10 @@ function isSavedBot(value: unknown): value is SavedBot {
     (!('duration' in value) ||
       (typeof value.duration === 'number' && Number.isInteger(value.duration) && value.duration > 0)) &&
     (!('recoveryEnabled' in value) || typeof value.recoveryEnabled === 'boolean') &&
+    (!('recoveryMultiplier' in value) ||
+      (typeof value.recoveryMultiplier === 'string' &&
+        (value.recoveryMultiplier.trim() === '' ||
+          (Number.isFinite(Number(value.recoveryMultiplier)) && Number(value.recoveryMultiplier) > 1)))) &&
     (!('takeProfit' in value) ||
       (typeof value.takeProfit === 'string' &&
         (value.takeProfit.trim() === '' ||
@@ -210,7 +216,7 @@ export function BotBuilder({
         <div>
           <h3 className="text-sm font-bold text-foreground">{localize('Create a bot')}</h3>
           <p className="text-xs text-muted-foreground">
-            {localize('The saved strategy is what the engine runs. Market and contract are selected automatically from its rules. Saved bots are available in the Bots tab.')}
+            {localize('Markets and contracts are selected from your rules.')}
           </p>
         </div>
       </div>
@@ -253,9 +259,6 @@ export function BotBuilder({
           disabled={disabled}
           className="w-full resize-y rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
         />
-        <p className="text-[11px] leading-relaxed text-muted-foreground">
-          {localize('Supported: differs, over/under, even or odd contracts; enter after a digit, sequence, or digit run. High means 5-9; low means 0-4.')}
-        </p>
       </div>
 
       {compilation?.strategy && (
@@ -313,7 +316,7 @@ export function BotBuilder({
       </div>
 
       <p className="text-[10px] leading-relaxed text-muted-foreground">
-        {localize('Bots only scan and trade after you start them. Matching historical ticks do not guarantee future results, and trading can lose money.')}
+        {localize('Historical patterns do not guarantee results. Trading can lose money.')}
       </p>
     </section>
   );
@@ -357,9 +360,6 @@ export function SavedBotsPanel({
       <div className="flex items-start justify-between gap-3">
         <div>
           <h3 className="text-sm font-bold text-foreground">{localize('Saved bots')}</h3>
-          <p className="text-xs text-muted-foreground">
-            {localize('Run a saved bot to let the engine buy when its strategy conditions match.')}
-          </p>
         </div>
         <Button type="button" size="sm" variant="outline" onClick={onCreateBot} disabled={disabled}>
           <Plus />
@@ -395,9 +395,6 @@ export function SavedBotsPanel({
       ) : bots.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border px-4 py-8 text-center">
           <p className="text-sm font-medium text-foreground">{localize('No bots saved yet.')}</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {localize('Build a strategy and save it to see it here.')}
-          </p>
         </div>
       ) : (
         <ul className="space-y-2">
@@ -416,12 +413,15 @@ export function SavedBotsPanel({
                   {(bot.stake || bot.maximumStake || bot.duration || bot.takeProfit || bot.stopLoss) && (
                     <p className="mt-1 text-[10px] text-muted-foreground">
                       {localize('Markets: all open continuous indices · Stake: {{stake}} USD · Max: {{maximumStake}} USD · Duration: {{duration}} ticks', {
-                        stake: bot.stake ?? '2.5',
+                        stake: bot.stake ?? TRADING_DEFAULTS.stake,
                         maximumStake: bot.maximumStake ?? localize('No limit'),
                         duration: bot.duration ?? 2,
                       })}
                       {bot.takeProfit && ` · ${localize('TP: {{value}} USD', { value: bot.takeProfit })}`}
                       {bot.stopLoss && ` · ${localize('SL: {{value}} USD', { value: bot.stopLoss })}`}
+                      {bot.recoveryEnabled !== false && ` · ${localize('Recovery: {{value}}×', {
+                        value: bot.recoveryMultiplier ?? TRADING_DEFAULTS.recoveryMultiplier,
+                      })}`}
                       {bot.recoveryEnabled === false && ` · ${localize('Recovery off')}`}
                     </p>
                   )}

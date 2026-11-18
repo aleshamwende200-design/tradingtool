@@ -138,7 +138,7 @@ export function TransactionsPanel({
         </div>
       </div>
 
-      <div className="min-h-40 max-h-[520px] flex-1 space-y-2 overflow-y-auto p-3 xl:max-h-none">
+      <div className="min-h-40 max-h-[520px] flex-1 space-y-2 overflow-y-auto scroll-smooth p-3">
         {visibleTransactions.length > 0 ? (
           visibleTransactions.map((transaction) => {
             const typeLabel = contractTypeLabels[transaction.contractType] ?? transaction.contractType;
